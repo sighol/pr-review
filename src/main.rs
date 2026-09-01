@@ -76,7 +76,7 @@ async fn main() -> Result<()> {
 
     let (pr_number_arg, repo_arg, force_fetch, commit_arg, interactive_mode, side_by_side) =
         match &cli.command {
-            Command::Sync {
+            Command::Diff {
                 pr_number,
                 repo,
                 fetch,
