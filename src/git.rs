@@ -319,6 +319,31 @@ pub async fn colored_diff(
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
+/// Uncolored `git diff` between two commit oids, restricted to a single
+/// path — for feeding into an external highlighter like `delta`, which does
+/// its own coloring and expects plain diff input.
+pub async fn plain_diff(
+    repo_path: &Path,
+    from_oid: &str,
+    to_oid: &str,
+    file_path: &str,
+) -> Result<String> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repo_path)
+        .args(["diff", "--color=never", from_oid, to_oid, "--", file_path])
+        .output()
+        .await
+        .context("failed to run git diff")?;
+    if !output.status.success() {
+        bail!(
+            "git diff failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -28,7 +28,7 @@ pub async fn show_diff_and_prompt(
         .map(|idx| commits[idx].oid.as_str())
         .unwrap_or(base_oid);
 
-    let diff = git::colored_diff(repo_path, from_oid, to_oid, &file.path).await?;
+    let diff = render_diff(repo_path, from_oid, to_oid, &file.path).await?;
     page(&diff).await?;
     print!(
         "Approve this file through commit #{} (of {})? (y/n): ",
@@ -51,6 +51,53 @@ pub async fn show_diff_and_prompt(
         db::record_approvals(pool, pr_number, &file.path, &commit_oids).await?;
     }
     Ok(approved)
+}
+
+/// Renders the diff for `file_path` between two oids, running it through
+/// `delta` for real syntax highlighting if it's installed, else falling back
+/// to plain `git diff --color=always`.
+async fn render_diff(repo_path: &Path, from_oid: &str, to_oid: &str, file_path: &str) -> Result<String> {
+    if delta_available().await {
+        let raw = git::plain_diff(repo_path, from_oid, to_oid, file_path).await?;
+        render_with_delta(repo_path, &raw).await
+    } else {
+        git::colored_diff(repo_path, from_oid, to_oid, file_path).await
+    }
+}
+
+async fn delta_available() -> bool {
+    Command::new("delta")
+        .arg("--version")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .await
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+async fn render_with_delta(repo_path: &Path, raw_diff: &str) -> Result<String> {
+    let mut child = Command::new("delta")
+        .current_dir(repo_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .context("failed to launch delta")?;
+
+    if let Some(mut stdin) = child.stdin.take() {
+        match stdin.write_all(raw_diff.as_bytes()).await {
+            Ok(()) => {}
+            Err(e) if e.kind() == io::ErrorKind::BrokenPipe => {}
+            Err(e) => return Err(e).context("failed to write diff to delta"),
+        }
+    }
+
+    let output = child
+        .wait_with_output()
+        .await
+        .context("delta exited with an error")?;
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 /// Pipes `content` through `$PAGER` (falling back to `less -R -F -X`, which
