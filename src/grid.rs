@@ -2,7 +2,7 @@ use crate::types::{ApprovalStatus, Approvals, Commit, PrFile, file_is_fully_appr
 
 /// Column width for the FILE column, and the threshold at which paths get
 /// smart-truncated (per spec: "more than 40 chars wide").
-pub const MAX_FILE_WIDTH: usize = 40;
+pub const MAX_FILE_WIDTH: usize = 60;
 
 // Raw ANSI SGR codes. Approved cells/lines use fg-only set/reset (not a full
 // `\x1b[0m` reset) so they can be nested inside a selected row's background
