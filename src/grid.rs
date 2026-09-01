@@ -10,6 +10,8 @@ pub const MAX_FILE_WIDTH: usize = 60;
 const FG_GREEN: &str = "\x1b[32m";
 const FG_DEFAULT: &str = "\x1b[39m";
 const BG_SELECTED: &str = "\x1b[43m"; // yellow background; reads as amber/orange in most themes
+const BOLD: &str = "\x1b[1m";
+const BOLD_RESET: &str = "\x1b[22m";
 const RESET: &str = "\x1b[0m";
 
 pub fn render_grid(
@@ -34,7 +36,8 @@ pub fn render_grid(
         let is_selected = selected_idx == Some(idx);
 
         let cursor = if is_selected { "\u{2192}" } else { " " };
-        let prefix = format!("{cursor} {abbrev:>pad$} | ", pad = MAX_FILE_WIDTH);
+        let padded_path = pad_and_bold_filename(&abbrev, MAX_FILE_WIDTH);
+        let prefix = format!("{cursor} {padded_path} | ");
 
         if is_selected {
             out.push_str(BG_SELECTED);
@@ -68,6 +71,20 @@ pub fn render_grid(
     }
 
     out
+}
+
+/// Right-pads `abbrev` to `width` and wraps its filename (the part after the
+/// last `/`, or the whole string if there's no `/`) in bold. Padding is
+/// computed on the plain text first, since the bold escape codes would
+/// otherwise be counted as visible width.
+fn pad_and_bold_filename(abbrev: &str, width: usize) -> String {
+    let pad_spaces = width.saturating_sub(abbrev.chars().count());
+    let filename_start = abbrev.rfind('/').map(|i| i + 1).unwrap_or(0);
+    let (dir_part, name_part) = abbrev.split_at(filename_start);
+    format!(
+        "{}{dir_part}{BOLD}{name_part}{BOLD_RESET}",
+        " ".repeat(pad_spaces)
+    )
 }
 
 /// Shortens a path to fit within `max_width`, abbreviating only as many
@@ -182,7 +199,22 @@ mod tests {
         approvals.insert("fileB".to_string(), "c1".to_string());
 
         let out = render_grid(&[file], &commits, &approvals, None);
-        assert!(out.contains(&format!("{FG_GREEN}  {:>pad$} | AA{FG_DEFAULT}", "fileB", pad = MAX_FILE_WIDTH)));
+        assert!(out.contains(&format!("{FG_GREEN}  ")));
+        assert!(out.contains(&format!("{BOLD}fileB{BOLD_RESET} | AA{FG_DEFAULT}")));
+    }
+
+    #[test]
+    fn bolds_only_the_filename_not_the_directories() {
+        let out = pad_and_bold_filename("s/v/l/p/to/file.rs", 20);
+        assert!(out.contains(&format!("{BOLD}file.rs{BOLD_RESET}")));
+        assert!(!out.contains(&format!("{BOLD}s/v/l/p/to/file.rs{BOLD_RESET}")));
+        assert!(out.starts_with(' '));
+    }
+
+    #[test]
+    fn bolds_whole_string_when_no_directory_separator() {
+        let out = pad_and_bold_filename("fileB", 10);
+        assert!(out.contains(&format!("{BOLD}fileB{BOLD_RESET}")));
     }
 
     #[test]
