@@ -70,28 +70,34 @@ pub fn render_grid(
     out
 }
 
-/// Converts long paths to a short form while keeping the filename intact,
-/// e.g. `src/very/long/path/to/file.rs` -> `s/v/l/p/t/file.rs`.
+/// Shortens a path to fit within `max_width`, abbreviating only as many
+/// leading directory components (to their first letter) as needed — the
+/// filename and any directories that already fit are left untouched.
+/// e.g. `src/very/long/path/to/file.rs` at width 18 -> `s/v/l/p/to/file.rs`.
 pub fn abbreviate_path(path: &str, max_width: usize) -> String {
     let parts: Vec<&str> = path.split('/').collect();
+    let filename = parts[parts.len() - 1];
+    let mut dirs: Vec<String> = parts[..parts.len() - 1].iter().map(|s| s.to_string()).collect();
 
-    let mut result = if parts.len() <= 2 {
-        path.to_string()
-    } else {
-        let filename = parts[parts.len() - 1];
-        let dirs = &parts[..parts.len() - 1];
-
-        let abbrev: Vec<char> = dirs.iter().map(|d| d.chars().next().unwrap_or('?')).collect();
-
-        let mut result = abbrev
-            .iter()
-            .map(|c| c.to_string())
-            .collect::<Vec<_>>()
-            .join("/");
-        result.push('/');
+    let join = |dirs: &[String], filename: &str| -> String {
+        let mut result = dirs.join("/");
+        if !dirs.is_empty() {
+            result.push('/');
+        }
         result.push_str(filename);
         result
     };
+
+    let mut result = join(&dirs, filename);
+    for i in 0..dirs.len() {
+        if result.chars().count() <= max_width {
+            break;
+        }
+        if dirs[i].chars().count() > 1 {
+            dirs[i] = dirs[i].chars().next().unwrap_or('?').to_string();
+            result = join(&dirs, filename);
+        }
+    }
 
     if result.chars().count() > max_width {
         let chars: Vec<char> = result.chars().collect();
@@ -108,15 +114,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn short_paths_pass_through() {
+    fn paths_that_already_fit_are_left_untouched() {
         assert_eq!(abbreviate_path("fileC.md", 40), "fileC.md");
-        assert_eq!(abbreviate_path("path/to/fileB.ts", 40), "p/t/fileB.ts");
+        assert_eq!(abbreviate_path("path/to/fileB.ts", 40), "path/to/fileB.ts");
+        assert_eq!(
+            abbreviate_path("src/very/long/path/to/file.rs", 40),
+            "src/very/long/path/to/file.rs"
+        );
     }
 
     #[test]
-    fn abbreviates_directories_to_first_char() {
+    fn abbreviates_only_as_many_leading_dirs_as_needed_to_fit() {
+        // Full path is 29 chars; abbreviating just the first 4 dirs (leaving
+        // "to" intact) is enough to fit width 20.
         assert_eq!(
-            abbreviate_path("src/very/long/path/to/file.rs", 40),
+            abbreviate_path("src/very/long/path/to/file.rs", 20),
+            "s/v/l/p/to/file.rs"
+        );
+    }
+
+    #[test]
+    fn abbreviates_all_dirs_when_nothing_less_fits() {
+        assert_eq!(
+            abbreviate_path("src/very/long/path/to/file.rs", 17),
             "s/v/l/p/t/file.rs"
         );
     }
