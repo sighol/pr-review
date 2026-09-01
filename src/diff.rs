@@ -3,10 +3,12 @@ use std::path::Path;
 use std::process::Stdio;
 
 use anyhow::{Context, Result};
+use crossterm::event::KeyCode;
 use sqlx::SqlitePool;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 
+use crate::interactive::read_key;
 use crate::types::{Approvals, Commit, PrFile, last_approved_idx, latest_commit_idx};
 use crate::{db, git};
 
@@ -21,6 +23,7 @@ pub async fn show_diff_and_prompt(
     commits: &[Commit],
     base_oid: &str,
     approvals: &Approvals,
+    side_by_side: bool,
 ) -> Result<bool> {
     let latest_idx = latest_commit_idx(file);
     let to_oid = &commits[latest_idx].oid;
@@ -28,8 +31,9 @@ pub async fn show_diff_and_prompt(
         .map(|idx| commits[idx].oid.as_str())
         .unwrap_or(base_oid);
 
-    let diff = render_diff(repo_path, from_oid, to_oid, &file.path).await?;
+    let diff = render_diff(repo_path, from_oid, to_oid, &file.path, side_by_side).await?;
     page(&diff).await?;
+    println!();
     print!(
         "Approve this file through commit #{} (of {})? (y/n): ",
         latest_idx + 1,
@@ -37,9 +41,8 @@ pub async fn show_diff_and_prompt(
     );
     io::stdout().flush()?;
 
-    let mut input = String::new();
-    io::stdin().read_line(&mut input)?;
-    let approved = input.trim().eq_ignore_ascii_case("y");
+    let input = read_key().unwrap_or(KeyCode::Enter);
+    let approved = input == KeyCode::Char('y');
     if approved {
         // Every commit that ever changed this file (not just the latest) gets
         // recorded, since approving "through" a commit approves all of them.
@@ -61,10 +64,11 @@ async fn render_diff(
     from_oid: &str,
     to_oid: &str,
     file_path: &str,
+    side_by_side: bool,
 ) -> Result<String> {
     if delta_available().await {
         let raw = git::plain_diff(repo_path, from_oid, to_oid, file_path).await?;
-        render_with_delta(repo_path, &raw).await
+        render_with_delta(repo_path, &raw, side_by_side).await
     } else {
         git::colored_diff(repo_path, from_oid, to_oid, file_path).await
     }
@@ -82,9 +86,24 @@ async fn delta_available() -> bool {
         .unwrap_or(false)
 }
 
-async fn render_with_delta(repo_path: &Path, raw_diff: &str) -> Result<String> {
-    let mut child = Command::new("delta")
-        .current_dir(repo_path)
+async fn render_with_delta(repo_path: &Path, raw_diff: &str, side_by_side: bool) -> Result<String> {
+    let mut cmd = Command::new("delta");
+    cmd.arg("--no-gitconfig");
+    cmd.current_dir(repo_path);
+    if side_by_side {
+        cmd.arg("--side-by-side");
+        // delta's stdout is a pipe (captured into a String below), not the
+        // real terminal, so it can't detect the actual width itself and
+        // falls back to a narrow default, squeezing both panes into
+        // something like 40 columns each. Tell it the real width.
+        if let Ok((cols, _rows)) = crossterm::terminal::size() {
+            cmd.arg("--width").arg(cols.to_string());
+        }
+    } else {
+        cmd.arg("--color-only");
+        cmd.arg("-n");
+    }
+    let mut child = cmd
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()
