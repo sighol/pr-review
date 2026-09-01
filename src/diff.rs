@@ -9,6 +9,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 
 use crate::interactive::read_key;
+use crate::pager::page;
 use crate::types::{Approvals, Commit, PrFile, last_approved_idx, latest_commit_idx};
 use crate::{db, git};
 
@@ -74,7 +75,7 @@ async fn render_diff(
     }
 }
 
-async fn delta_available() -> bool {
+pub(crate) async fn delta_available() -> bool {
     Command::new("delta")
         .arg("--version")
         .stdin(Stdio::null())
@@ -86,7 +87,11 @@ async fn delta_available() -> bool {
         .unwrap_or(false)
 }
 
-async fn render_with_delta(repo_path: &Path, raw_diff: &str, side_by_side: bool) -> Result<String> {
+pub(crate) async fn render_with_delta(
+    repo_path: &Path,
+    raw_diff: &str,
+    side_by_side: bool,
+) -> Result<String> {
     let mut cmd = Command::new("delta");
     cmd.arg("--no-gitconfig");
     cmd.current_dir(repo_path);
@@ -124,33 +129,21 @@ async fn render_with_delta(repo_path: &Path, raw_diff: &str, side_by_side: bool)
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
-/// Pipes `content` through `$PAGER` (falling back to `less -R -F`, which
-/// renders ANSI colors and skips paging when the content fits on one screen).
-/// Deliberately omits `-X`: it skips entering the terminal's alternate
-/// screen, which is what most terminal emulators key off of to translate
-/// mouse-wheel scrolling into arrow keys for the foreground app.
-async fn page(content: &str) -> Result<()> {
-    let pager_cmd = std::env::var("PAGER").unwrap_or_else(|_| "less -R -F".to_string());
-    let mut parts = pager_cmd.split_whitespace();
-    let program = parts.next().unwrap_or("less");
-    let args: Vec<&str> = parts.collect();
-
-    let mut child = Command::new(program)
-        .args(&args)
-        .stdin(Stdio::piped())
-        .spawn()
-        .with_context(|| format!("failed to launch pager '{pager_cmd}'"))?;
-
-    if let Some(mut stdin) = child.stdin.take() {
-        match stdin.write_all(content.as_bytes()).await {
-            Ok(()) => {}
-            // The pager (e.g. `less -F`) may exit as soon as it has enough to
-            // fill the screen, closing its end of the pipe before we're done.
-            Err(e) if e.kind() == io::ErrorKind::BrokenPipe => {}
-            Err(e) => return Err(e).context("failed to write diff to pager"),
-        }
+/// Renders a single review-comment diff hunk (as GitHub recorded it at
+/// comment time) through delta if available, else returns the raw hunk text
+/// unmodified — it already reads fine without color.
+pub async fn render_hunk(
+    repo_path: &Path,
+    file_path: &str,
+    diff_hunk: &str,
+    side_by_side: bool,
+) -> Result<String> {
+    let synthetic = format!(
+        "diff --git a/{file_path} b/{file_path}\n--- a/{file_path}\n+++ b/{file_path}\n{diff_hunk}\n"
+    );
+    if delta_available().await {
+        render_with_delta(repo_path, &synthetic, side_by_side).await
+    } else {
+        Ok(synthetic)
     }
-
-    child.wait().await.context("pager exited with an error")?;
-    Ok(())
 }

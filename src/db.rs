@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
@@ -124,6 +125,54 @@ pub async fn save_active_pr(
     Ok(())
 }
 
+/// Loads this PR's locally-tracked discussion resolutions: discussion id ->
+/// the id of the comment it was last resolved through.
+pub async fn load_thread_resolutions(
+    pool: &SqlitePool,
+    pr_number: u64,
+) -> Result<HashMap<String, String>> {
+    let rows = sqlx::query(
+        "SELECT thread_id, resolved_comment_id FROM thread_resolutions WHERE pr_number = ?",
+    )
+    .bind(pr_number as i64)
+    .fetch_all(pool)
+    .await
+    .context("failed to load thread resolutions")?;
+
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            (
+                row.get::<String, _>("thread_id"),
+                row.get::<String, _>("resolved_comment_id"),
+            )
+        })
+        .collect())
+}
+
+/// Records that `thread_id` has been resolved (by us, locally) through
+/// `resolved_comment_id`, overwriting whatever was previously stored.
+pub async fn save_thread_resolution(
+    pool: &SqlitePool,
+    pr_number: u64,
+    thread_id: &str,
+    resolved_comment_id: &str,
+) -> Result<()> {
+    sqlx::query(
+        "INSERT INTO thread_resolutions (pr_number, thread_id, resolved_comment_id)
+         VALUES (?, ?, ?)
+         ON CONFLICT(pr_number, thread_id)
+         DO UPDATE SET resolved_comment_id = excluded.resolved_comment_id, resolved_at = CURRENT_TIMESTAMP",
+    )
+    .bind(pr_number as i64)
+    .bind(thread_id)
+    .bind(resolved_comment_id)
+    .execute(pool)
+    .await
+    .context("failed to save thread resolution")?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -213,6 +262,44 @@ mod tests {
         assert_eq!(active.pr_number, 43);
         assert_eq!(active.base_oid, "base2");
         assert_eq!(active.head_ref_name, "feature-b");
+
+        pool.close().await;
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[tokio::test]
+    async fn thread_resolutions_round_trip_and_overwrite() {
+        let path =
+            std::env::temp_dir().join(format!("pr-review-test-threads-{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+
+        let options = SqliteConnectOptions::new()
+            .filename(&path)
+            .create_if_missing(true);
+        let pool = SqlitePoolOptions::new()
+            .connect_with(options)
+            .await
+            .unwrap();
+        sqlx::migrate!().run(&pool).await.unwrap();
+
+        assert!(load_thread_resolutions(&pool, 1).await.unwrap().is_empty());
+
+        save_thread_resolution(&pool, 1, "thread-a", "comment-1")
+            .await
+            .unwrap();
+        let resolutions = load_thread_resolutions(&pool, 1).await.unwrap();
+        assert_eq!(resolutions.get("thread-a"), Some(&"comment-1".to_string()));
+
+        // Re-resolving the same thread overwrites, not accumulates.
+        save_thread_resolution(&pool, 1, "thread-a", "comment-2")
+            .await
+            .unwrap();
+        let resolutions = load_thread_resolutions(&pool, 1).await.unwrap();
+        assert_eq!(resolutions.len(), 1);
+        assert_eq!(resolutions.get("thread-a"), Some(&"comment-2".to_string()));
+
+        // Resolutions are scoped per PR number.
+        assert!(load_thread_resolutions(&pool, 2).await.unwrap().is_empty());
 
         pool.close().await;
         let _ = std::fs::remove_file(&path);
