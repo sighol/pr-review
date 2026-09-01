@@ -188,12 +188,12 @@ enum ApprovalStatus {
 
 ```sql
 CREATE TABLE pr_review_state (
-    pr_number INTEGER PRIMARY KEY NOT NULL,
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pr_number INTEGER NOT NULL,
     file_path TEXT NOT NULL,
     approved_up_to_commit TEXT NOT NULL,  -- commit OID
     approved_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(pr_number, file_path)
-);
 );
 ```
 
