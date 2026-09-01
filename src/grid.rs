@@ -45,10 +45,10 @@ pub fn render_grid(
         stat_width = stat_width
     );
     out.push_str(&header_left);
-    out.push_str(" | APPROVAL\n");
+    out.push_str(" | COMMITS\n");
     out.push_str(&"-".repeat(header_left.len() + 1));
     out.push('|');
-    out.push_str(&"-".repeat("APPROVAL".len() + 1));
+    out.push_str(&"-".repeat("COMMITS".len() + 1));
     out.push('\n');
 
     for (idx, file) in files.iter().enumerate() {
