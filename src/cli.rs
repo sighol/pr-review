@@ -15,7 +15,7 @@ pub enum Command {
     /// Display the grid and enter interactive mode. Reuses the last-reviewed
     /// PR for this repo (owner/repo comes from the `origin` remote) if
     /// `pr_number` is omitted.
-    Sync {
+    Diff {
         #[arg(value_parser = parse_pr_number)]
         pr_number: Option<u64>,
         #[arg(long)]
