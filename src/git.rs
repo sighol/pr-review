@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
-use chrono::Utc;
 use tokio::process::Command;
 
 use crate::types::{Commit, PrFile};
@@ -28,7 +27,11 @@ pub async fn fetch_origin(repo_path: &Path) -> Result<()> {
 
 /// Errors out with a helpful message if `base_oid`/`head_oid` aren't present
 /// locally after `fetch_origin` (e.g. the PR's branch lives on a fork).
-pub async fn ensure_commits_available(repo_path: &Path, base_oid: &str, head_oid: &str) -> Result<()> {
+pub async fn ensure_commits_available(
+    repo_path: &Path,
+    base_oid: &str,
+    head_oid: &str,
+) -> Result<()> {
     for oid in [base_oid, head_oid] {
         if !commit_exists(repo_path, oid).await? {
             bail!(
@@ -55,7 +58,10 @@ async fn commit_exists(repo_path: &Path, oid: &str) -> Result<bool> {
 /// Resolves `branch` to the commit it currently points to locally, without
 /// any network access: tries the local branch first, then `origin/<branch>`.
 pub async fn resolve_branch_oid(repo_path: &Path, branch: &str) -> Result<String> {
-    for candidate in [format!("refs/heads/{branch}"), format!("refs/remotes/origin/{branch}")] {
+    for candidate in [
+        format!("refs/heads/{branch}"),
+        format!("refs/remotes/origin/{branch}"),
+    ] {
         if let Some(oid) = rev_parse(repo_path, &candidate).await? {
             return Ok(oid);
         }
@@ -77,7 +83,9 @@ async fn rev_parse(repo_path: &Path, rev: &str) -> Result<Option<String>> {
     if !output.status.success() {
         return Ok(None);
     }
-    Ok(Some(String::from_utf8_lossy(&output.stdout).trim().to_string()))
+    Ok(Some(
+        String::from_utf8_lossy(&output.stdout).trim().to_string(),
+    ))
 }
 
 /// Resolves `rev` (a hash, tag, branch, etc.) to a full commit oid, for use
@@ -99,7 +107,9 @@ pub async fn ensure_is_descendant(repo_path: &Path, ancestor: &str, oid: &str) -
         .await
         .context("failed to run git merge-base --is-ancestor")?;
     if !output.status.success() {
-        bail!("commit {oid} is not a descendant of the PR base ({ancestor}) — is it really part of this PR?");
+        bail!(
+            "commit {oid} is not a descendant of the PR base ({ancestor}) — is it really part of this PR?"
+        );
     }
     Ok(())
 }
@@ -121,7 +131,8 @@ pub async fn origin_owner_repo(repo_path: &Path) -> Result<(String, String)> {
         );
     }
     let url = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    parse_github_owner_repo(&url).with_context(|| format!("could not parse owner/repo out of origin URL '{url}'"))
+    parse_github_owner_repo(&url)
+        .with_context(|| format!("could not parse owner/repo out of origin URL '{url}'"))
 }
 
 fn parse_github_owner_repo(url: &str) -> Option<(String, String)> {
@@ -138,7 +149,11 @@ fn parse_github_owner_repo(url: &str) -> Option<(String, String)> {
 }
 
 /// All commits between `base_oid` (exclusive) and `head_oid` (inclusive), oldest first.
-pub async fn commits_in_range(repo_path: &Path, base_oid: &str, head_oid: &str) -> Result<Vec<Commit>> {
+pub async fn commits_in_range(
+    repo_path: &Path,
+    base_oid: &str,
+    head_oid: &str,
+) -> Result<Vec<Commit>> {
     let output = Command::new("git")
         .arg("-C")
         .arg(repo_path)
@@ -152,7 +167,10 @@ pub async fn commits_in_range(repo_path: &Path, base_oid: &str, head_oid: &str) 
         .await
         .context("failed to run git log")?;
     if !output.status.success() {
-        bail!("git log failed: {}", String::from_utf8_lossy(&output.stderr));
+        bail!(
+            "git log failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -160,17 +178,7 @@ pub async fn commits_in_range(repo_path: &Path, base_oid: &str, head_oid: &str) 
     for line in stdout.lines() {
         let mut parts = line.split(FIELD_SEP);
         let oid = parts.next().unwrap_or_default().to_string();
-        let message = parts.next().unwrap_or_default().to_string();
-        let committed_date = parts
-            .next()
-            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-            .map(|dt| dt.with_timezone(&Utc))
-            .unwrap_or_else(Utc::now);
-        commits.push(Commit {
-            oid,
-            message,
-            committed_date,
-        });
+        commits.push(Commit { oid });
     }
     Ok(commits)
 }
@@ -303,7 +311,10 @@ pub async fn colored_diff(
         .await
         .context("failed to run git diff")?;
     if !output.status.success() {
-        bail!("git diff failed: {}", String::from_utf8_lossy(&output.stderr));
+        bail!(
+            "git diff failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
@@ -334,7 +345,10 @@ mod tests {
 
     #[test]
     fn rejects_non_github_url() {
-        assert_eq!(parse_github_owner_repo("git@gitlab.com:owner/repo.git"), None);
+        assert_eq!(
+            parse_github_owner_repo("git@gitlab.com:owner/repo.git"),
+            None
+        );
     }
 
     #[tokio::test]
@@ -384,7 +398,10 @@ mod tests {
 
     #[tokio::test]
     async fn resolve_commit_and_ancestry_check() {
-        let dir = std::env::temp_dir().join(format!("pr-review-git-test-ancestry-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "pr-review-git-test-ancestry-{}",
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
 
@@ -426,8 +443,14 @@ mod tests {
 
         assert!(resolve_commit(&dir, "not-a-commit").await.is_err());
 
-        ensure_is_descendant(&dir, &base_oid, &mid_oid).await.unwrap();
-        assert!(ensure_is_descendant(&dir, &mid_oid, &base_oid).await.is_err());
+        ensure_is_descendant(&dir, &base_oid, &mid_oid)
+            .await
+            .unwrap();
+        assert!(
+            ensure_is_descendant(&dir, &mid_oid, &base_oid)
+                .await
+                .is_err()
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }

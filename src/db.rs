@@ -46,13 +46,12 @@ fn db_path(owner: &str, repo: &str) -> Result<PathBuf> {
 }
 
 pub async fn load_approvals(pool: &SqlitePool, pr_number: u64) -> Result<Approvals> {
-    let rows = sqlx::query(
-        "SELECT file_path, commit_oid FROM file_commit_approvals WHERE pr_number = ?",
-    )
-    .bind(pr_number as i64)
-    .fetch_all(pool)
-    .await
-    .context("failed to load approvals")?;
+    let rows =
+        sqlx::query("SELECT file_path, commit_oid FROM file_commit_approvals WHERE pr_number = ?")
+            .bind(pr_number as i64)
+            .fetch_all(pool)
+            .await
+            .context("failed to load approvals")?;
 
     let mut approvals = Approvals::new();
     for row in rows {
@@ -183,7 +182,8 @@ mod tests {
 
     #[tokio::test]
     async fn active_pr_round_trip_and_overwrite() {
-        let path = std::env::temp_dir().join(format!("pr-review-test-active-{}.db", std::process::id()));
+        let path =
+            std::env::temp_dir().join(format!("pr-review-test-active-{}.db", std::process::id()));
         let _ = std::fs::remove_file(&path);
 
         let options = SqliteConnectOptions::new()
@@ -197,14 +197,18 @@ mod tests {
 
         assert!(load_active_pr(&pool).await.unwrap().is_none());
 
-        save_active_pr(&pool, 42, "base1", "feature-a").await.unwrap();
+        save_active_pr(&pool, 42, "base1", "feature-a")
+            .await
+            .unwrap();
         let active = load_active_pr(&pool).await.unwrap().unwrap();
         assert_eq!(active.pr_number, 42);
         assert_eq!(active.base_oid, "base1");
         assert_eq!(active.head_ref_name, "feature-a");
 
         // Only one active PR is tracked at a time; saving again overwrites it.
-        save_active_pr(&pool, 43, "base2", "feature-b").await.unwrap();
+        save_active_pr(&pool, 43, "base2", "feature-b")
+            .await
+            .unwrap();
         let active = load_active_pr(&pool).await.unwrap().unwrap();
         assert_eq!(active.pr_number, 43);
         assert_eq!(active.base_oid, "base2");

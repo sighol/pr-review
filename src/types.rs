@@ -1,10 +1,6 @@
-use chrono::{DateTime, Utc};
-
 #[derive(Debug, Clone)]
 pub struct Commit {
     pub oid: String,
-    pub message: String,
-    pub committed_date: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone)]
@@ -64,7 +60,11 @@ pub fn get_approval_status(
 
 /// The highest commit index (within `commits`) that's been approved for this
 /// file, if any. Used to know where to resume diffing/rendering from.
-pub fn last_approved_idx(file: &PrFile, commits: &[Commit], approvals: &Approvals) -> Option<usize> {
+pub fn last_approved_idx(
+    file: &PrFile,
+    commits: &[Commit],
+    approvals: &Approvals,
+) -> Option<usize> {
     let approved_oids = approvals.get(&file.path)?;
     (0..commits.len())
         .filter(|&idx| approved_oids.contains(&commits[idx].oid))

@@ -4,8 +4,8 @@ use std::path::Path;
 use anyhow::Result;
 use crossterm::cursor::MoveTo;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
-use crossterm::terminal::{Clear, ClearType, disable_raw_mode, enable_raw_mode};
 use crossterm::execute;
+use crossterm::terminal::{Clear, ClearType, disable_raw_mode, enable_raw_mode};
 use sqlx::SqlitePool;
 
 use crate::db;
@@ -84,11 +84,21 @@ fn first_unapproved(files: &[PrFile], commits: &[Commit], approvals: &Approvals)
 /// Moves the selection one step in the given direction, skipping over fully
 /// approved files (which can't be selected). Wraps around, and is a no-op if
 /// every file happens to be fully approved (defensive; shouldn't occur).
-fn step(files: &[PrFile], commits: &[Commit], approvals: &Approvals, from: usize, forward: bool) -> usize {
+fn step(
+    files: &[PrFile],
+    commits: &[Commit],
+    approvals: &Approvals,
+    from: usize,
+    forward: bool,
+) -> usize {
     let len = files.len();
     let mut idx = from;
     loop {
-        idx = if forward { (idx + 1) % len } else { (idx + len - 1) % len };
+        idx = if forward {
+            (idx + 1) % len
+        } else {
+            (idx + len - 1) % len
+        };
         if !file_is_fully_approved(&files[idx], commits, approvals) {
             return idx;
         }
@@ -98,7 +108,12 @@ fn step(files: &[PrFile], commits: &[Commit], approvals: &Approvals, from: usize
     }
 }
 
-fn redraw(files: &[PrFile], commits: &[Commit], approvals: &crate::types::Approvals, selected_idx: Option<usize>) {
+fn redraw(
+    files: &[PrFile],
+    commits: &[Commit],
+    approvals: &crate::types::Approvals,
+    selected_idx: Option<usize>,
+) {
     let _ = execute!(stdout(), Clear(ClearType::All), MoveTo(0, 0));
     print!("{}", render_grid(files, commits, approvals, selected_idx));
 }
@@ -109,7 +124,9 @@ fn read_key() -> Result<KeyCode> {
     enable_raw_mode()?;
     let result = loop {
         match event::read()? {
-            Event::Key(key_event) if key_event.kind == KeyEventKind::Press => break Ok(key_event.code),
+            Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
+                break Ok(key_event.code);
+            }
             _ => continue,
         }
     };
