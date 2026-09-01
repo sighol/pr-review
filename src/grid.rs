@@ -1,4 +1,4 @@
-use crate::types::{Approvals, Commit, PrFile, file_is_fully_approved, get_approval_status};
+use crate::types::{Approvals, Commit, PrFile, file_is_fully_approved, get_approval_status, last_approved_idx};
 
 /// Column width for the FILE column, and the threshold at which paths get
 /// smart-truncated (per spec: "more than 40 chars wide").
@@ -54,9 +54,7 @@ pub fn render_grid(
     for (idx, file) in files.iter().enumerate() {
         let abbrev = abbreviate_path(&file.path, MAX_FILE_WIDTH);
         let fully_approved = file_is_fully_approved(file, commits, approvals);
-        let approved_through_idx = approvals
-            .get(&file.path)
-            .and_then(|oid| commits.iter().position(|c| &c.oid == oid));
+        let approved_through_idx = last_approved_idx(file, commits, approvals);
         let is_selected = selected_idx == Some(idx);
 
         let cursor = if is_selected { "\u{2192}" } else { " " };
@@ -75,9 +73,11 @@ pub fn render_grid(
             // the per-cell approval background.
             let is_approved_span = fully_approved || approved_through_idx.is_some_and(|a| c <= a);
             if !is_selected && is_approved_span {
-                out.push_str(BG_GREEN);
+                out.push_str(FG_GREEN);
+                out.push_str(BOLD);
                 out.push(ch);
-                out.push_str(BG_DEFAULT);
+                out.push_str(FG_DEFAULT);
+                out.push_str(BOLD_RESET);
             } else {
                 out.push(ch);
             }
@@ -215,7 +215,12 @@ mod tests {
             removed: 0,
         };
         let mut approvals = Approvals::new();
-        approvals.insert("fileB".to_string(), "c2".to_string());
+        // Approving "through" c2 records every commit that changed the file
+        // up to it — here, c0 and c2 (c3 is still unapproved).
+        approvals.insert(
+            "fileB".to_string(),
+            std::collections::HashSet::from(["c0".to_string(), "c2".to_string()]),
+        );
 
         let out = render_grid(&[file], &commits, &approvals, None);
         assert!(out.contains(&format!(
@@ -246,7 +251,10 @@ mod tests {
             removed: 0,
         };
         let mut approvals = Approvals::new();
-        approvals.insert("fileB".to_string(), "c2".to_string());
+        approvals.insert(
+            "fileB".to_string(),
+            std::collections::HashSet::from(["c0".to_string(), "c2".to_string()]),
+        );
 
         let out = render_grid(&[file], &commits, &approvals, None);
         assert!(out.contains(&format!(

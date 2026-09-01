@@ -7,7 +7,7 @@ use sqlx::SqlitePool;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 
-use crate::types::{Approvals, Commit, PrFile, latest_commit_idx};
+use crate::types::{Approvals, Commit, PrFile, last_approved_idx, latest_commit_idx};
 use crate::{db, git};
 
 /// Shows the diff for `file` (from its last approved commit, or the PR base,
@@ -24,9 +24,8 @@ pub async fn show_diff_and_prompt(
 ) -> Result<bool> {
     let latest_idx = latest_commit_idx(file);
     let to_oid = &commits[latest_idx].oid;
-    let from_oid = approvals
-        .get(&file.path)
-        .map(String::as_str)
+    let from_oid = last_approved_idx(file, commits, approvals)
+        .map(|idx| commits[idx].oid.as_str())
         .unwrap_or(base_oid);
 
     let diff = git::colored_diff(repo_path, from_oid, to_oid, &file.path).await?;
@@ -42,7 +41,14 @@ pub async fn show_diff_and_prompt(
     io::stdin().read_line(&mut input)?;
     let approved = input.trim() == "y";
     if approved {
-        db::upsert_approval(pool, pr_number, &file.path, to_oid).await?;
+        // Every commit that ever changed this file (not just the latest) gets
+        // recorded, since approving "through" a commit approves all of them.
+        let commit_oids: Vec<String> = file
+            .commits_that_changed_it
+            .iter()
+            .map(|&idx| commits[idx].oid.clone())
+            .collect();
+        db::record_approvals(pool, pr_number, &file.path, &commit_oids).await?;
     }
     Ok(approved)
 }

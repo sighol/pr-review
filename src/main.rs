@@ -16,9 +16,9 @@ use cli::{Cli, Command};
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    let (pr_number_arg, repo_arg, force_fetch, interactive_mode) = match &cli.command {
-        Command::Sync { pr_number, repo, fetch } => (*pr_number, repo, *fetch, true),
-        Command::Status { pr_number, repo, fetch } => (*pr_number, repo, *fetch, false),
+    let (pr_number_arg, repo_arg, force_fetch, commit_arg, interactive_mode) = match &cli.command {
+        Command::Sync { pr_number, repo, fetch, commit } => (*pr_number, repo, *fetch, commit, true),
+        Command::Status { pr_number, repo, fetch, commit } => (*pr_number, repo, *fetch, commit, false),
     };
 
     let repo_path = match repo_arg {
@@ -44,7 +44,7 @@ async fn main() -> Result<()> {
         .unwrap_or(true);
     let need_fetch = force_fetch || switching_pr;
 
-    let (base_oid, head_oid, _head_ref_name) = if need_fetch {
+    let (base_oid, mut head_oid, _head_ref_name) = if need_fetch {
         eprintln!("Fetching PR #{pr_number} from GitHub...");
         let pr_refs = github::fetch_pr_refs(&owner, &repo_name, pr_number).await?;
         eprintln!("Fetching origin (branch {})...", pr_refs.head_ref_name);
@@ -57,6 +57,12 @@ async fn main() -> Result<()> {
         let head_oid = git::resolve_branch_oid(&repo_path, &active.head_ref_name).await?;
         (active.base_oid, head_oid, active.head_ref_name)
     };
+
+    if let Some(commit) = commit_arg {
+        let resolved = git::resolve_commit(&repo_path, commit).await?;
+        git::ensure_is_descendant(&repo_path, &base_oid, &resolved).await?;
+        head_oid = resolved;
+    }
 
     let commits = git::commits_in_range(&repo_path, &base_oid, &head_oid).await?;
     let file_paths = git::changed_files_in_range(&repo_path, &base_oid, &head_oid).await?;
