@@ -9,7 +9,7 @@ use crate::types::Approvals;
 
 pub struct ActivePr {
     pub pr_number: u64,
-    pub base_oid: String,
+    pub base_ref_name: String,
     pub head_ref_name: String,
 }
 
@@ -92,14 +92,15 @@ pub async fn record_approvals(
 }
 
 pub async fn load_active_pr(pool: &SqlitePool) -> Result<Option<ActivePr>> {
-    let row = sqlx::query("SELECT pr_number, base_oid, head_ref_name FROM active_pr WHERE id = 1")
-        .fetch_optional(pool)
-        .await
-        .context("failed to load active PR")?;
+    let row =
+        sqlx::query("SELECT pr_number, base_ref_name, head_ref_name FROM active_pr WHERE id = 1")
+            .fetch_optional(pool)
+            .await
+            .context("failed to load active PR")?;
 
     Ok(row.map(|row| ActivePr {
         pr_number: row.get::<i64, _>("pr_number") as u64,
-        base_oid: row.get::<String, _>("base_oid"),
+        base_ref_name: row.get::<String, _>("base_ref_name"),
         head_ref_name: row.get::<String, _>("head_ref_name"),
     }))
 }
@@ -107,17 +108,17 @@ pub async fn load_active_pr(pool: &SqlitePool) -> Result<Option<ActivePr>> {
 pub async fn save_active_pr(
     pool: &SqlitePool,
     pr_number: u64,
-    base_oid: &str,
+    base_ref_name: &str,
     head_ref_name: &str,
 ) -> Result<()> {
     sqlx::query(
-        "INSERT INTO active_pr (id, pr_number, base_oid, head_ref_name)
+        "INSERT INTO active_pr (id, pr_number, base_ref_name, head_ref_name)
          VALUES (1, ?, ?, ?)
          ON CONFLICT(id)
-         DO UPDATE SET pr_number = excluded.pr_number, base_oid = excluded.base_oid, head_ref_name = excluded.head_ref_name",
+         DO UPDATE SET pr_number = excluded.pr_number, base_ref_name = excluded.base_ref_name, head_ref_name = excluded.head_ref_name",
     )
     .bind(pr_number as i64)
-    .bind(base_oid)
+    .bind(base_ref_name)
     .bind(head_ref_name)
     .execute(pool)
     .await
@@ -251,7 +252,7 @@ mod tests {
             .unwrap();
         let active = load_active_pr(&pool).await.unwrap().unwrap();
         assert_eq!(active.pr_number, 42);
-        assert_eq!(active.base_oid, "base1");
+        assert_eq!(active.base_ref_name, "base1");
         assert_eq!(active.head_ref_name, "feature-a");
 
         // Only one active PR is tracked at a time; saving again overwrites it.
@@ -260,7 +261,7 @@ mod tests {
             .unwrap();
         let active = load_active_pr(&pool).await.unwrap().unwrap();
         assert_eq!(active.pr_number, 43);
-        assert_eq!(active.base_oid, "base2");
+        assert_eq!(active.base_ref_name, "base2");
         assert_eq!(active.head_ref_name, "feature-b");
 
         pool.close().await;

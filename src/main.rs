@@ -101,25 +101,38 @@ async fn main() -> Result<()> {
         .unwrap_or(true);
     let need_fetch = force_fetch || switching_pr;
 
-    let (base_oid, mut head_oid, _head_ref_name) = if need_fetch {
+    let (base_ref_name, mut head_oid, _head_ref_name) = if need_fetch {
         eprintln!("Fetching PR #{pr_number} from GitHub...");
         let pr_refs = github::fetch_pr_refs(&owner, &repo_name, pr_number).await?;
         eprintln!("Fetching origin (branch {})...", pr_refs.head_ref_name);
         git::fetch_origin(&repo_path).await?;
-        git::ensure_commits_available(&repo_path, &pr_refs.base_oid, &pr_refs.head_oid).await?;
-        db::save_active_pr(&pool, pr_number, &pr_refs.base_oid, &pr_refs.head_ref_name).await?;
-        (pr_refs.base_oid, pr_refs.head_oid, pr_refs.head_ref_name)
+        git::ensure_commits_available(&repo_path, &[&pr_refs.head_oid]).await?;
+        db::save_active_pr(
+            &pool,
+            pr_number,
+            &pr_refs.base_ref_name,
+            &pr_refs.head_ref_name,
+        )
+        .await?;
+        (
+            pr_refs.base_ref_name,
+            pr_refs.head_oid,
+            pr_refs.head_ref_name,
+        )
     } else {
         let active = stored_active.expect("!need_fetch implies stored_active matched pr_number");
         let head_oid = git::resolve_branch_oid(&repo_path, &active.head_ref_name).await?;
-        (active.base_oid, head_oid, active.head_ref_name)
+        (active.base_ref_name, head_oid, active.head_ref_name)
     };
 
     if let Some(commit) = commit_arg {
         let resolved = git::resolve_commit(&repo_path, commit).await?;
-        git::ensure_is_descendant(&repo_path, &base_oid, &resolved).await?;
+        git::ensure_is_descendant(&repo_path, &base_ref_name, &resolved).await?;
         head_oid = resolved;
     }
+    let base_oid = git::merge_base(&repo_path, &base_ref_name, &head_oid)
+        .await?
+        .to_string();
 
     let commits = git::commits_in_range(&repo_path, &base_oid, &head_oid).await?;
     let file_paths = git::changed_files_in_range(&repo_path, &base_oid, &head_oid).await?;

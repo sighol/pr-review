@@ -68,8 +68,9 @@ pub async fn run(
 
     eprintln!("Fetching origin (for commit numbers)...");
     git::fetch_origin(repo_path).await?;
-    git::ensure_commits_available(repo_path, &pr_refs.base_oid, &pr_refs.head_oid).await?;
-    let commits = git::commits_in_range(repo_path, &pr_refs.base_oid, &pr_refs.head_oid).await?;
+    git::ensure_commits_available(repo_path, &[&pr_refs.base_ref_name, &pr_refs.head_oid]).await?;
+    let commits =
+        git::commits_in_range(repo_path, &pr_refs.base_ref_name, &pr_refs.head_oid).await?;
     // 1-based, matching the numbering `sync`/`status` already show elsewhere.
     let commit_numbers: HashMap<&str, usize> = commits
         .iter()
