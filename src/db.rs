@@ -21,19 +21,10 @@ pub async fn open(owner: &str, repo: &str) -> Result<SqlitePool> {
         .await
         .with_context(|| format!("failed to open database at {}", db_path.display()))?;
 
-    sqlx::query(
-        "CREATE TABLE IF NOT EXISTS pr_review_state (
-            id INTEGER PRIMARY KEY,
-            pr_number INTEGER NOT NULL,
-            file_path TEXT NOT NULL,
-            approved_up_to_commit TEXT NOT NULL,
-            approved_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(pr_number, file_path)
-        )",
-    )
-    .execute(&pool)
-    .await
-    .context("failed to create pr_review_state table")?;
+    sqlx::migrate!()
+        .run(&pool)
+        .await
+        .context("failed to run database migrations")?;
 
     Ok(pool)
 }
@@ -87,4 +78,42 @@ pub async fn upsert_approval(
     .await
     .context("failed to upsert approval")?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn migrations_run_and_approvals_round_trip() {
+        let path = std::env::temp_dir().join(format!("pr-review-test-{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+
+        let options = SqliteConnectOptions::new()
+            .filename(&path)
+            .create_if_missing(true);
+        let pool = SqlitePoolOptions::new()
+            .connect_with(options)
+            .await
+            .unwrap();
+        sqlx::migrate!().run(&pool).await.unwrap();
+
+        assert!(load_approvals(&pool, 1).await.unwrap().is_empty());
+
+        upsert_approval(&pool, 1, "src/main.rs", "abc123").await.unwrap();
+        let approvals = load_approvals(&pool, 1).await.unwrap();
+        assert_eq!(approvals.get("src/main.rs"), Some(&"abc123".to_string()));
+
+        // Re-approving the same file through a later commit updates in place.
+        upsert_approval(&pool, 1, "src/main.rs", "def456").await.unwrap();
+        let approvals = load_approvals(&pool, 1).await.unwrap();
+        assert_eq!(approvals.len(), 1);
+        assert_eq!(approvals.get("src/main.rs"), Some(&"def456".to_string()));
+
+        // Approvals are scoped per PR number.
+        assert!(load_approvals(&pool, 2).await.unwrap().is_empty());
+
+        pool.close().await;
+        let _ = std::fs::remove_file(&path);
+    }
 }
