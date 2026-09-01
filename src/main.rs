@@ -7,7 +7,7 @@ mod grid;
 mod interactive;
 mod types;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Parser;
 
 use cli::{Cli, Command, parse_pr_reference};
@@ -16,34 +16,62 @@ use cli::{Cli, Command, parse_pr_reference};
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    let (pr_ref_str, repo_arg, interactive_mode) = match &cli.command {
-        Command::Sync { pr_ref, repo } => (pr_ref, repo, true),
-        Command::Status { pr_ref, repo } => (pr_ref, repo, false),
+    let (pr_ref_str, repo_arg, force_fetch, interactive_mode) = match &cli.command {
+        Command::Sync { pr_ref, repo, fetch } => (pr_ref, repo, *fetch, true),
+        Command::Status { pr_ref, repo, fetch } => (pr_ref, repo, *fetch, false),
     };
 
-    let pr_ref = parse_pr_reference(pr_ref_str)?;
     let repo_path = match repo_arg {
         Some(p) => p.clone(),
         None => std::env::current_dir()?,
     };
 
-    eprintln!(
-        "Syncing {}/{}#{}...",
-        pr_ref.owner, pr_ref.repo, pr_ref.pr_number
-    );
+    let (owner, repo_name, pr_number_arg) = match pr_ref_str {
+        Some(s) => {
+            let r = parse_pr_reference(s)?;
+            (r.owner, r.repo, Some(r.pr_number))
+        }
+        None => {
+            let (owner, repo_name) = git::origin_owner_repo(&repo_path).await?;
+            (owner, repo_name, None)
+        }
+    };
 
-    let pr_refs = github::fetch_pr_refs(&pr_ref.owner, &pr_ref.repo, pr_ref.pr_number).await?;
-    eprintln!("Fetching origin (branch {})...", pr_refs.head_ref_name);
-    git::fetch_origin(&repo_path).await?;
-    git::ensure_commits_available(&repo_path, &pr_refs.base_oid, &pr_refs.head_oid).await?;
+    let pool = db::open(&owner, &repo_name).await?;
+    let stored_active = db::load_active_pr(&pool).await?;
 
-    let commits = git::commits_in_range(&repo_path, &pr_refs.base_oid, &pr_refs.head_oid).await?;
-    let file_paths =
-        git::changed_files_in_range(&repo_path, &pr_refs.base_oid, &pr_refs.head_oid).await?;
+    let pr_number = pr_number_arg
+        .or_else(|| stored_active.as_ref().map(|a| a.pr_number))
+        .context(
+            "no PR specified and no previously reviewed PR found for this repo; \
+             run e.g. `pr-review sync owner/repo#123`",
+        )?;
+
+    let switching_pr = stored_active
+        .as_ref()
+        .map(|a| a.pr_number != pr_number)
+        .unwrap_or(true);
+    let need_fetch = force_fetch || switching_pr;
+
+    let (base_oid, head_oid, _head_ref_name) = if need_fetch {
+        eprintln!("Fetching PR #{pr_number} from GitHub...");
+        let pr_refs = github::fetch_pr_refs(&owner, &repo_name, pr_number).await?;
+        eprintln!("Fetching origin (branch {})...", pr_refs.head_ref_name);
+        git::fetch_origin(&repo_path).await?;
+        git::ensure_commits_available(&repo_path, &pr_refs.base_oid, &pr_refs.head_oid).await?;
+        db::save_active_pr(&pool, pr_number, &pr_refs.base_oid, &pr_refs.head_ref_name).await?;
+        (pr_refs.base_oid, pr_refs.head_oid, pr_refs.head_ref_name)
+    } else {
+        let active = stored_active.expect("!need_fetch implies stored_active matched pr_number");
+        let head_oid = git::resolve_branch_oid(&repo_path, &active.head_ref_name).await?;
+        (active.base_oid, head_oid, active.head_ref_name)
+    };
+
+    let commits = git::commits_in_range(&repo_path, &base_oid, &head_oid).await?;
+    let file_paths = git::changed_files_in_range(&repo_path, &base_oid, &head_oid).await?;
     let files = git::build_pr_files(&repo_path, &commits, &file_paths).await?;
 
-    let pool = db::open(&pr_ref.owner, &pr_ref.repo).await?;
-    let approvals = db::load_approvals(&pool, pr_ref.pr_number).await?;
+    let approvals = db::load_approvals(&pool, pr_number).await?;
 
     if !types::has_unapproved_changes(&files, &commits, &approvals) {
         print!("{}", grid::render_grid(&files, &commits, &approvals, None));
@@ -56,13 +84,5 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    interactive::run(
-        &repo_path,
-        &pool,
-        pr_ref.pr_number,
-        &files,
-        &commits,
-        &pr_refs.base_oid,
-    )
-    .await
+    interactive::run(&repo_path, &pool, pr_number, &files, &commits, &base_oid).await
 }

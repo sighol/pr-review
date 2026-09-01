@@ -6,6 +6,12 @@ use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
 
 use crate::types::Approvals;
 
+pub struct ActivePr {
+    pub pr_number: u64,
+    pub base_oid: String,
+    pub head_ref_name: String,
+}
+
 pub async fn open(owner: &str, repo: &str) -> Result<SqlitePool> {
     let db_path = db_path(owner, repo)?;
     if let Some(parent) = db_path.parent() {
@@ -80,6 +86,40 @@ pub async fn upsert_approval(
     Ok(())
 }
 
+pub async fn load_active_pr(pool: &SqlitePool) -> Result<Option<ActivePr>> {
+    let row = sqlx::query("SELECT pr_number, base_oid, head_ref_name FROM active_pr WHERE id = 1")
+        .fetch_optional(pool)
+        .await
+        .context("failed to load active PR")?;
+
+    Ok(row.map(|row| ActivePr {
+        pr_number: row.get::<i64, _>("pr_number") as u64,
+        base_oid: row.get::<String, _>("base_oid"),
+        head_ref_name: row.get::<String, _>("head_ref_name"),
+    }))
+}
+
+pub async fn save_active_pr(
+    pool: &SqlitePool,
+    pr_number: u64,
+    base_oid: &str,
+    head_ref_name: &str,
+) -> Result<()> {
+    sqlx::query(
+        "INSERT INTO active_pr (id, pr_number, base_oid, head_ref_name)
+         VALUES (1, ?, ?, ?)
+         ON CONFLICT(id)
+         DO UPDATE SET pr_number = excluded.pr_number, base_oid = excluded.base_oid, head_ref_name = excluded.head_ref_name",
+    )
+    .bind(pr_number as i64)
+    .bind(base_oid)
+    .bind(head_ref_name)
+    .execute(pool)
+    .await
+    .context("failed to save active PR")?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -112,6 +152,39 @@ mod tests {
 
         // Approvals are scoped per PR number.
         assert!(load_approvals(&pool, 2).await.unwrap().is_empty());
+
+        pool.close().await;
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[tokio::test]
+    async fn active_pr_round_trip_and_overwrite() {
+        let path = std::env::temp_dir().join(format!("pr-review-test-active-{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+
+        let options = SqliteConnectOptions::new()
+            .filename(&path)
+            .create_if_missing(true);
+        let pool = SqlitePoolOptions::new()
+            .connect_with(options)
+            .await
+            .unwrap();
+        sqlx::migrate!().run(&pool).await.unwrap();
+
+        assert!(load_active_pr(&pool).await.unwrap().is_none());
+
+        save_active_pr(&pool, 42, "base1", "feature-a").await.unwrap();
+        let active = load_active_pr(&pool).await.unwrap().unwrap();
+        assert_eq!(active.pr_number, 42);
+        assert_eq!(active.base_oid, "base1");
+        assert_eq!(active.head_ref_name, "feature-a");
+
+        // Only one active PR is tracked at a time; saving again overwrites it.
+        save_active_pr(&pool, 43, "base2", "feature-b").await.unwrap();
+        let active = load_active_pr(&pool).await.unwrap().unwrap();
+        assert_eq!(active.pr_number, 43);
+        assert_eq!(active.base_oid, "base2");
+        assert_eq!(active.head_ref_name, "feature-b");
 
         pool.close().await;
         let _ = std::fs::remove_file(&path);
