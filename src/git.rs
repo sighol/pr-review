@@ -176,12 +176,45 @@ pub async fn changed_files_in_range(
         .collect())
 }
 
+/// Lines added/removed per file across `base_oid..head_oid`. Binary files
+/// (reported by git as `-\t-\tpath`) are counted as 0/0.
+pub async fn diffstat_in_range(
+    repo_path: &Path,
+    base_oid: &str,
+    head_oid: &str,
+) -> Result<HashMap<String, (usize, usize)>> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repo_path)
+        .args(["diff", "--numstat", &format!("{base_oid}..{head_oid}")])
+        .output()
+        .await
+        .context("failed to run git diff --numstat")?;
+    if !output.status.success() {
+        bail!(
+            "git diff --numstat failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    let mut stats = HashMap::new();
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        let mut parts = line.splitn(3, '\t');
+        let added: usize = parts.next().unwrap_or("0").parse().unwrap_or(0);
+        let removed: usize = parts.next().unwrap_or("0").parse().unwrap_or(0);
+        let path = parts.next().unwrap_or_default().to_string();
+        stats.insert(path, (added, removed));
+    }
+    Ok(stats)
+}
+
 /// For each commit (in order), find which files it changed, then build a
 /// `PrFile` per known file path with the indices of commits that touched it.
 pub async fn build_pr_files(
     repo_path: &Path,
     commits: &[Commit],
     file_paths: &[String],
+    diffstat: &HashMap<String, (usize, usize)>,
 ) -> Result<Vec<PrFile>> {
     let mut changed_by_path: HashMap<&str, Vec<usize>> = HashMap::new();
 
@@ -196,12 +229,17 @@ pub async fn build_pr_files(
 
     Ok(file_paths
         .iter()
-        .map(|path| PrFile {
-            path: path.clone(),
-            commits_that_changed_it: changed_by_path
-                .get(path.as_str())
-                .cloned()
-                .unwrap_or_default(),
+        .map(|path| {
+            let (added, removed) = diffstat.get(path.as_str()).copied().unwrap_or((0, 0));
+            PrFile {
+                path: path.clone(),
+                commits_that_changed_it: changed_by_path
+                    .get(path.as_str())
+                    .cloned()
+                    .unwrap_or_default(),
+                added,
+                removed,
+            }
         })
         .collect())
 }
@@ -273,5 +311,50 @@ mod tests {
     #[test]
     fn rejects_non_github_url() {
         assert_eq!(parse_github_owner_repo("git@gitlab.com:owner/repo.git"), None);
+    }
+
+    #[tokio::test]
+    async fn diffstat_in_range_parses_numstat_output() {
+        let dir = std::env::temp_dir().join(format!("pr-review-git-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let run = |args: &[&str]| {
+            let status = std::process::Command::new("git")
+                .arg("-C")
+                .arg(&dir)
+                .args(args)
+                .status()
+                .unwrap();
+            assert!(status.success());
+        };
+        let rev_parse_head = || {
+            let output = std::process::Command::new("git")
+                .arg("-C")
+                .arg(&dir)
+                .args(["rev-parse", "HEAD"])
+                .output()
+                .unwrap();
+            String::from_utf8_lossy(&output.stdout).trim().to_string()
+        };
+
+        run(&["init", "-q"]);
+        run(&["config", "user.email", "test@example.com"]);
+        run(&["config", "user.name", "Test"]);
+
+        std::fs::write(dir.join("a.txt"), "line1\nline2\nline3\n").unwrap();
+        run(&["add", "."]);
+        run(&["commit", "-q", "-m", "base"]);
+        let base_oid = rev_parse_head();
+
+        std::fs::write(dir.join("a.txt"), "line1\nchanged\nline3\nline4\n").unwrap();
+        run(&["add", "."]);
+        run(&["commit", "-q", "-m", "change"]);
+        let head_oid = rev_parse_head();
+
+        let stats = diffstat_in_range(&dir, &base_oid, &head_oid).await.unwrap();
+        assert_eq!(stats.get("a.txt").copied(), Some((2, 1)));
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

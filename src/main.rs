@@ -60,7 +60,8 @@ async fn main() -> Result<()> {
 
     let commits = git::commits_in_range(&repo_path, &base_oid, &head_oid).await?;
     let file_paths = git::changed_files_in_range(&repo_path, &base_oid, &head_oid).await?;
-    let files = git::build_pr_files(&repo_path, &commits, &file_paths).await?;
+    let diffstat = git::diffstat_in_range(&repo_path, &base_oid, &head_oid).await?;
+    let files = git::build_pr_files(&repo_path, &commits, &file_paths, &diffstat).await?;
 
     let approvals = db::load_approvals(&pool, pr_number).await?;
 
