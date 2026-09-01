@@ -10,15 +10,15 @@ mod types;
 use anyhow::{Context, Result};
 use clap::Parser;
 
-use cli::{Cli, Command, parse_pr_reference};
+use cli::{Cli, Command};
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    let (pr_ref_str, repo_arg, force_fetch, interactive_mode) = match &cli.command {
-        Command::Sync { pr_ref, repo, fetch } => (pr_ref, repo, *fetch, true),
-        Command::Status { pr_ref, repo, fetch } => (pr_ref, repo, *fetch, false),
+    let (pr_number_arg, repo_arg, force_fetch, interactive_mode) = match &cli.command {
+        Command::Sync { pr_number, repo, fetch } => (*pr_number, repo, *fetch, true),
+        Command::Status { pr_number, repo, fetch } => (*pr_number, repo, *fetch, false),
     };
 
     let repo_path = match repo_arg {
@@ -26,16 +26,7 @@ async fn main() -> Result<()> {
         None => std::env::current_dir()?,
     };
 
-    let (owner, repo_name, pr_number_arg) = match pr_ref_str {
-        Some(s) => {
-            let r = parse_pr_reference(s)?;
-            (r.owner, r.repo, Some(r.pr_number))
-        }
-        None => {
-            let (owner, repo_name) = git::origin_owner_repo(&repo_path).await?;
-            (owner, repo_name, None)
-        }
-    };
+    let (owner, repo_name) = git::origin_owner_repo(&repo_path).await?;
 
     let pool = db::open(&owner, &repo_name).await?;
     let stored_active = db::load_active_pr(&pool).await?;
@@ -44,7 +35,7 @@ async fn main() -> Result<()> {
         .or_else(|| stored_active.as_ref().map(|a| a.pr_number))
         .context(
             "no PR specified and no previously reviewed PR found for this repo; \
-             run e.g. `pr-review sync owner/repo#123`",
+             run e.g. `pr-review sync 123`",
         )?;
 
     let switching_pr = stored_active

@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -13,9 +13,11 @@ pub struct Cli {
 #[derive(Subcommand)]
 pub enum Command {
     /// Display the grid and enter interactive mode. Reuses the last-reviewed
-    /// PR for this repo if `pr_ref` is omitted.
+    /// PR for this repo (owner/repo comes from the `origin` remote) if
+    /// `pr_number` is omitted.
     Sync {
-        pr_ref: Option<String>,
+        #[arg(value_parser = parse_pr_number)]
+        pr_number: Option<u64>,
         #[arg(long)]
         repo: Option<PathBuf>,
         /// Refetch PR metadata from GitHub and `git fetch origin`, instead of
@@ -25,7 +27,8 @@ pub enum Command {
     },
     /// Show the grid without entering interactive mode.
     Status {
-        pr_ref: Option<String>,
+        #[arg(value_parser = parse_pr_number)]
+        pr_number: Option<u64>,
         #[arg(long)]
         repo: Option<PathBuf>,
         #[arg(long)]
@@ -33,31 +36,13 @@ pub enum Command {
     },
 }
 
-pub struct PrRef {
-    pub owner: String,
-    pub repo: String,
-    pub pr_number: u64,
-}
-
-/// Parses a PR reference of the form `owner/repo#123`.
-pub fn parse_pr_reference(input: &str) -> Result<PrRef> {
-    let (repo_part, pr_part) = input
-        .split_once('#')
-        .with_context(|| format!("invalid PR reference '{input}', expected owner/repo#123"))?;
-    let (owner, repo) = repo_part
-        .split_once('/')
-        .with_context(|| format!("invalid PR reference '{input}', expected owner/repo#123"))?;
-    if owner.is_empty() || repo.is_empty() {
-        bail!("invalid PR reference '{input}', expected owner/repo#123");
-    }
-    let pr_number: u64 = pr_part
+/// Accepts a PR number with an optional leading `#`, e.g. `123` or `#123`.
+fn parse_pr_number(input: &str) -> Result<u64> {
+    input
+        .strip_prefix('#')
+        .unwrap_or(input)
         .parse()
-        .with_context(|| format!("invalid PR number '{pr_part}' in '{input}'"))?;
-    Ok(PrRef {
-        owner: owner.to_string(),
-        repo: repo.to_string(),
-        pr_number,
-    })
+        .with_context(|| format!("invalid PR number '{input}'"))
 }
 
 #[cfg(test)]
@@ -65,20 +50,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_valid_reference() {
-        let pr_ref = parse_pr_reference("anthropic/anthropic-sdk-python#123").unwrap();
-        assert_eq!(pr_ref.owner, "anthropic");
-        assert_eq!(pr_ref.repo, "anthropic-sdk-python");
-        assert_eq!(pr_ref.pr_number, 123);
+    fn parses_plain_number() {
+        assert_eq!(parse_pr_number("123").unwrap(), 123);
     }
 
     #[test]
-    fn rejects_missing_hash() {
-        assert!(parse_pr_reference("anthropic/anthropic-sdk-python").is_err());
+    fn parses_number_with_leading_hash() {
+        assert_eq!(parse_pr_number("#123").unwrap(), 123);
     }
 
     #[test]
-    fn rejects_missing_slash() {
-        assert!(parse_pr_reference("anthropic-sdk-python#123").is_err());
+    fn rejects_non_numeric_input() {
+        assert!(parse_pr_number("owner/repo#123").is_err());
     }
 }
