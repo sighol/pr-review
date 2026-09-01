@@ -115,8 +115,10 @@ pub async fn run(
     }
 
     let skin = MadSkin::default();
+    let mut discussion_index = 0;
     let mut all_resolved = true;
     for discussion in &unresolved {
+        discussion_index += 1;
         let mut rendered = String::new();
         if let (Some(path), Some(diff_hunk)) = (&discussion.path, &discussion.diff_hunk) {
             let hunk = diff::render_hunk(repo_path, path, diff_hunk, side_by_side).await?;
@@ -157,11 +159,14 @@ pub async fn run(
         let _ = execute!(io::stdout(), Clear(ClearType::All), MoveTo(0, 0));
         page(&rendered).await?;
         println!();
-        print!("Resolve this discussion? (y/n): ");
+        print!(
+            "Resolve discussion {discussion_index}/{}? (y/n): ",
+            unresolved.len()
+        );
         io::stdout().flush()?;
 
         match read_key().unwrap_or(KeyCode::Enter) {
-            KeyCode::Char('q') => return Ok(()),
+            KeyCode::Char('q') | KeyCode::Char('c') => return Ok(()),
             KeyCode::Char('y') => {
                 db::save_thread_resolution(
                     pool,
