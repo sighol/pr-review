@@ -34,8 +34,13 @@ impl ApprovalStatus {
     }
 }
 
-/// file_path -> commit oid the file is approved through
-pub type Approvals = std::collections::HashMap<String, String>;
+/// file_path -> set of commit oids that have been individually approved for
+/// that file. Approving "through" a commit records every commit oid that
+/// changed the file up to that point, rather than a single pointer — so
+/// status lookups are exact-oid membership checks, robust to a `commits`
+/// list that's been truncated (e.g. by `--commit`) relative to when the
+/// approval was recorded.
+pub type Approvals = std::collections::HashMap<String, std::collections::HashSet<String>>;
 
 pub fn get_approval_status(
     file: &PrFile,
@@ -47,15 +52,23 @@ pub fn get_approval_status(
         return ApprovalStatus::NoChange;
     }
 
-    let Some(approved_oid) = approvals.get(&file.path) else {
-        return ApprovalStatus::Unapproved;
-    };
-
-    let approved_idx = commits.iter().position(|c| &c.oid == approved_oid);
-    match approved_idx {
-        Some(idx) if commit_idx <= idx => ApprovalStatus::Approved,
-        _ => ApprovalStatus::Unapproved,
+    let approved = approvals
+        .get(&file.path)
+        .is_some_and(|oids| oids.contains(&commits[commit_idx].oid));
+    if approved {
+        ApprovalStatus::Approved
+    } else {
+        ApprovalStatus::Unapproved
     }
+}
+
+/// The highest commit index (within `commits`) that's been approved for this
+/// file, if any. Used to know where to resume diffing/rendering from.
+pub fn last_approved_idx(file: &PrFile, commits: &[Commit], approvals: &Approvals) -> Option<usize> {
+    let approved_oids = approvals.get(&file.path)?;
+    (0..commits.len())
+        .filter(|&idx| approved_oids.contains(&commits[idx].oid))
+        .max()
 }
 
 /// A file is fully approved once none of its cells are `Unapproved` — since

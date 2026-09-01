@@ -24,6 +24,10 @@ pub enum Command {
         /// resolving the branch from local git state.
         #[arg(long)]
         fetch: bool,
+        /// Treat this commit as the PR's head: show the grid, diffs, and
+        /// approvals only up through this commit, ignoring anything later.
+        #[arg(long)]
+        commit: Option<String>,
     },
     /// Show the grid without entering interactive mode.
     Status {
@@ -33,6 +37,8 @@ pub enum Command {
         repo: Option<PathBuf>,
         #[arg(long)]
         fetch: bool,
+        #[arg(long)]
+        commit: Option<String>,
     },
 }
 
