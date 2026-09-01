@@ -12,6 +12,9 @@ pub struct PrFile {
     pub path: String,
     /// Indices into the `commits` array of the commits that changed this file.
     pub commits_that_changed_it: Vec<usize>,
+    /// Lines added/removed across the whole PR range (base..head).
+    pub added: usize,
+    pub removed: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

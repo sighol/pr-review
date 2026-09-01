@@ -8,6 +8,7 @@ pub const MAX_FILE_WIDTH: usize = 60;
 // `\x1b[0m` reset) so they can be nested inside a selected row's background
 // without clobbering it.
 const FG_GREEN: &str = "\x1b[32m";
+const FG_RED: &str = "\x1b[31m";
 const FG_DEFAULT: &str = "\x1b[39m";
 const BG_SELECTED: &str = "\x1b[43m"; // yellow background; reads as amber/orange in most themes
 const BOLD: &str = "\x1b[1m";
@@ -22,7 +23,25 @@ pub fn render_grid(
 ) -> String {
     let mut out = String::new();
 
-    let header_left = format!("  {:<pad$}", "FILE", pad = MAX_FILE_WIDTH);
+    let added_width = files
+        .iter()
+        .map(|f| f.added.to_string().chars().count())
+        .max()
+        .unwrap_or(0);
+    let removed_width = files
+        .iter()
+        .map(|f| f.removed.to_string().chars().count())
+        .max()
+        .unwrap_or(0);
+    let stat_width = added_width + 1 + removed_width;
+
+    let header_left = format!(
+        "  {:<pad$} {:<stat_width$}",
+        "FILE",
+        "",
+        pad = MAX_FILE_WIDTH,
+        stat_width = stat_width
+    );
     out.push_str(&header_left);
     out.push_str(" | APPROVAL\n");
     out.push_str(&"-".repeat(header_left.len() + 1));
@@ -37,7 +56,8 @@ pub fn render_grid(
 
         let cursor = if is_selected { "\u{2192}" } else { " " };
         let padded_path = pad_and_bold_filename(&abbrev, MAX_FILE_WIDTH);
-        let prefix = format!("{cursor} {padded_path} | ");
+        let styled_stat = style_diffstat(file, added_width, removed_width);
+        let prefix = format!("{cursor} {padded_path} {styled_stat} | ");
 
         if is_selected {
             out.push_str(BG_SELECTED);
@@ -71,6 +91,16 @@ pub fn render_grid(
     }
 
     out
+}
+
+/// Renders `added/removed` (added in green, removed in red), right-aligning
+/// each number within its own column width so the `/` lines up across rows.
+fn style_diffstat(file: &PrFile, added_width: usize, removed_width: usize) -> String {
+    format!(
+        "{FG_GREEN}{added:>added_width$}{FG_DEFAULT}/{FG_RED}{removed:>removed_width$}{FG_DEFAULT}",
+        added = file.added,
+        removed = file.removed,
+    )
 }
 
 /// Right-pads `abbrev` to `width` and wraps its filename (the part after the
@@ -179,6 +209,8 @@ mod tests {
         let file = PrFile {
             path: "fileB".to_string(),
             commits_that_changed_it: vec![0, 1],
+            added: 0,
+            removed: 0,
         };
         let mut approvals = Approvals::new();
         approvals.insert("fileB".to_string(), "c0".to_string());
@@ -194,13 +226,48 @@ mod tests {
         let file = PrFile {
             path: "fileB".to_string(),
             commits_that_changed_it: vec![0, 1],
+            added: 10,
+            removed: 2,
         };
         let mut approvals = Approvals::new();
         approvals.insert("fileB".to_string(), "c1".to_string());
 
         let out = render_grid(&[file], &commits, &approvals, None);
         assert!(out.contains(&format!("{FG_GREEN}  ")));
-        assert!(out.contains(&format!("{BOLD}fileB{BOLD_RESET} | AA{FG_DEFAULT}")));
+        assert!(out.contains(&format!(
+            "{BOLD}fileB{BOLD_RESET} {FG_GREEN}10{FG_DEFAULT}/{FG_RED}2{FG_DEFAULT} | AA{FG_DEFAULT}"
+        )));
+    }
+
+    #[test]
+    fn diffstat_slashes_align_and_bar_column_stays_aligned() {
+        let commits = vec![commit("c0")];
+        let short = PrFile {
+            path: "a.rs".to_string(),
+            commits_that_changed_it: vec![0],
+            added: 1,
+            removed: 0,
+        };
+        let long = PrFile {
+            path: "b.rs".to_string(),
+            commits_that_changed_it: vec![0],
+            added: 100,
+            removed: 50,
+        };
+
+        let out = render_grid(&[short, long], &commits, &Approvals::new(), None);
+        let lines: Vec<&str> = out.lines().collect();
+
+        // "1/0" pads "1" to width 3 (matching "100") and "0" to width 2
+        // (matching "50"), so both '/' land at the same column.
+        assert!(lines[2].contains(&format!("{FG_GREEN}  1{FG_DEFAULT}/{FG_RED} 0{FG_DEFAULT}")));
+        assert!(lines[3].contains(&format!("{FG_GREEN}100{FG_DEFAULT}/{FG_RED}50{FG_DEFAULT}")));
+
+        let slash_col = |line: &str| line.find('/').unwrap();
+        assert_eq!(slash_col(lines[2]), slash_col(lines[3]));
+
+        let bar_col = |line: &str| line.find(" | ").unwrap();
+        assert_eq!(bar_col(lines[2]), bar_col(lines[3]));
     }
 
     #[test]
@@ -223,6 +290,8 @@ mod tests {
         let file = PrFile {
             path: "fileB".to_string(),
             commits_that_changed_it: vec![0],
+            added: 0,
+            removed: 0,
         };
         let approvals = Approvals::new();
 
