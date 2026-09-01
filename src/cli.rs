@@ -12,17 +12,24 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
-    /// Sync from GitHub, display the grid, and enter interactive mode.
+    /// Display the grid and enter interactive mode. Reuses the last-reviewed
+    /// PR for this repo if `pr_ref` is omitted.
     Sync {
-        pr_ref: String,
+        pr_ref: Option<String>,
         #[arg(long)]
         repo: Option<PathBuf>,
+        /// Refetch PR metadata from GitHub and `git fetch origin`, instead of
+        /// resolving the branch from local git state.
+        #[arg(long)]
+        fetch: bool,
     },
     /// Show the grid without entering interactive mode.
     Status {
-        pr_ref: String,
+        pr_ref: Option<String>,
         #[arg(long)]
         repo: Option<PathBuf>,
+        #[arg(long)]
+        fetch: bool,
     },
 }
 

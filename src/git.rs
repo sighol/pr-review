@@ -52,6 +52,67 @@ async fn commit_exists(repo_path: &Path, oid: &str) -> Result<bool> {
     Ok(output.status.success())
 }
 
+/// Resolves `branch` to the commit it currently points to locally, without
+/// any network access: tries the local branch first, then `origin/<branch>`.
+pub async fn resolve_branch_oid(repo_path: &Path, branch: &str) -> Result<String> {
+    for candidate in [format!("refs/heads/{branch}"), format!("refs/remotes/origin/{branch}")] {
+        if let Some(oid) = rev_parse(repo_path, &candidate).await? {
+            return Ok(oid);
+        }
+    }
+    bail!(
+        "could not resolve branch '{branch}' locally (checked refs/heads/{branch} and \
+         refs/remotes/origin/{branch}). Run with --fetch, or check out the branch first."
+    );
+}
+
+async fn rev_parse(repo_path: &Path, rev: &str) -> Result<Option<String>> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repo_path)
+        .args(["rev-parse", "--verify", "--quiet", rev])
+        .output()
+        .await
+        .context("failed to run git rev-parse")?;
+    if !output.status.success() {
+        return Ok(None);
+    }
+    Ok(Some(String::from_utf8_lossy(&output.stdout).trim().to_string()))
+}
+
+/// Derives the GitHub `owner/repo` from the `origin` remote, so a PR
+/// reference can be omitted once a repo has an active PR stored.
+pub async fn origin_owner_repo(repo_path: &Path) -> Result<(String, String)> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repo_path)
+        .args(["remote", "get-url", "origin"])
+        .output()
+        .await
+        .context("failed to run git remote get-url origin")?;
+    if !output.status.success() {
+        bail!(
+            "no 'origin' remote configured for this repo: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    let url = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    parse_github_owner_repo(&url).with_context(|| format!("could not parse owner/repo out of origin URL '{url}'"))
+}
+
+fn parse_github_owner_repo(url: &str) -> Option<(String, String)> {
+    let trimmed = url.strip_suffix(".git").unwrap_or(url);
+    let idx = trimmed.find("github.com")?;
+    let rest = trimmed[idx + "github.com".len()..]
+        .trim_start_matches(':')
+        .trim_start_matches('/');
+    let (owner, repo) = rest.split_once('/')?;
+    if owner.is_empty() || repo.is_empty() {
+        return None;
+    }
+    Some((owner.to_string(), repo.to_string()))
+}
+
 /// All commits between `base_oid` (exclusive) and `head_oid` (inclusive), oldest first.
 pub async fn commits_in_range(repo_path: &Path, base_oid: &str, head_oid: &str) -> Result<Vec<Commit>> {
     let output = Command::new("git")
@@ -183,4 +244,34 @@ pub async fn colored_diff(
         bail!("git diff failed: {}", String::from_utf8_lossy(&output.stderr));
     }
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_ssh_origin_url() {
+        assert_eq!(
+            parse_github_owner_repo("git@github.com:anthropic/anthropic-sdk-python.git"),
+            Some(("anthropic".to_string(), "anthropic-sdk-python".to_string()))
+        );
+    }
+
+    #[test]
+    fn parses_https_origin_url() {
+        assert_eq!(
+            parse_github_owner_repo("https://github.com/kubernetes/kubernetes.git"),
+            Some(("kubernetes".to_string(), "kubernetes".to_string()))
+        );
+        assert_eq!(
+            parse_github_owner_repo("https://github.com/kubernetes/kubernetes"),
+            Some(("kubernetes".to_string(), "kubernetes".to_string()))
+        );
+    }
+
+    #[test]
+    fn rejects_non_github_url() {
+        assert_eq!(parse_github_owner_repo("git@gitlab.com:owner/repo.git"), None);
+    }
 }
