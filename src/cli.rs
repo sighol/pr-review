@@ -44,6 +44,19 @@ pub enum Command {
         #[arg(long)]
         commit: Option<String>,
     },
+    /// Walk through PR discussions (review-comment threads and the top-level
+    /// conversation) one at a time, `git add -p`-style, and locally track
+    /// which ones you've resolved. Always refetches from GitHub.
+    Threads {
+        #[arg(value_parser = parse_pr_number)]
+        pr_number: Option<u64>,
+        #[arg(long)]
+        repo: Option<PathBuf>,
+        /// Render each discussion's diff hunk side-by-side. Only takes effect
+        /// when `delta` is installed; ignored otherwise.
+        #[arg(long)]
+        side_by_side: bool,
+    },
 }
 
 /// Accepts a PR number with an optional leading `#`, e.g. `123` or `#123`.

@@ -5,34 +5,32 @@ mod git;
 mod github;
 mod grid;
 mod interactive;
+mod pager;
+mod threads;
 mod types;
+
+use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use clap::Parser;
+use sqlx::SqlitePool;
 
 use cli::{Cli, Command};
 
-#[tokio::main]
-async fn main() -> Result<()> {
-    let cli = Cli::parse();
-
-    let (pr_number_arg, repo_arg, force_fetch, commit_arg, interactive_mode, side_by_side) =
-        match &cli.command {
-            Command::Sync {
-                pr_number,
-                repo,
-                fetch,
-                commit,
-                side_by_side,
-            } => (*pr_number, repo, *fetch, commit, true, *side_by_side),
-            Command::Status {
-                pr_number,
-                repo,
-                fetch,
-                commit,
-            } => (*pr_number, repo, *fetch, commit, false, false),
-        };
-
+/// Resolves the repo path, opens its local db, and figures out which PR is
+/// active — either from `pr_number_arg` or (if omitted) the last-reviewed PR
+/// for this repo. Shared by every subcommand.
+async fn resolve_pr(
+    repo_arg: &Option<PathBuf>,
+    pr_number_arg: Option<u64>,
+) -> Result<(
+    PathBuf,
+    String,
+    String,
+    SqlitePool,
+    u64,
+    Option<db::ActivePr>,
+)> {
     let repo_path = match repo_arg {
         Some(p) => p.clone(),
         None => std::env::current_dir()?,
@@ -49,6 +47,53 @@ async fn main() -> Result<()> {
             "no PR specified and no previously reviewed PR found for this repo; \
              run e.g. `pr-review sync 123`",
         )?;
+
+    Ok((repo_path, owner, repo_name, pool, pr_number, stored_active))
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let cli = Cli::parse();
+
+    if let Command::Threads {
+        pr_number,
+        repo,
+        side_by_side,
+    } = &cli.command
+    {
+        let (repo_path, owner, repo_name, pool, pr_number, _) =
+            resolve_pr(repo, *pr_number).await?;
+        return threads::run(
+            &repo_path,
+            &pool,
+            &owner,
+            &repo_name,
+            pr_number,
+            *side_by_side,
+        )
+        .await;
+    }
+
+    let (pr_number_arg, repo_arg, force_fetch, commit_arg, interactive_mode, side_by_side) =
+        match &cli.command {
+            Command::Sync {
+                pr_number,
+                repo,
+                fetch,
+                commit,
+                side_by_side,
+            } => (*pr_number, repo, *fetch, commit, true, *side_by_side),
+            Command::Status {
+                pr_number,
+                repo,
+                fetch,
+                commit,
+            } => (*pr_number, repo, *fetch, commit, false, false),
+            Command::Threads { .. } => unreachable!("handled above"),
+        };
+
+    let (repo_path, owner, repo_name, pool, pr_number, stored_active) =
+        resolve_pr(repo_arg, pr_number_arg).await?;
 
     let switching_pr = stored_active
         .as_ref()
