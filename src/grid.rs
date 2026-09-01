@@ -116,46 +116,17 @@ fn pad_and_bold_filename(abbrev: &str, width: usize) -> String {
     )
 }
 
-/// Shortens a path to fit within `max_width`, abbreviating only as many
-/// leading directory components (to their first letter) as needed — the
-/// filename and any directories that already fit are left untouched.
-/// e.g. `src/very/long/path/to/file.rs` at width 18 -> `s/v/l/p/to/file.rs`.
+/// Shortens a path to fit within `max_width` by truncating from the left and
+/// prefixing with `...`, keeping the tail (and therefore the filename) intact.
 pub fn abbreviate_path(path: &str, max_width: usize) -> String {
-    let parts: Vec<&str> = path.split('/').collect();
-    let filename = parts[parts.len() - 1];
-    let mut dirs: Vec<String> = parts[..parts.len() - 1]
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
-
-    let join = |dirs: &[String], filename: &str| -> String {
-        let mut result = dirs.join("/");
-        if !dirs.is_empty() {
-            result.push('/');
-        }
-        result.push_str(filename);
-        result
-    };
-
-    let mut result = join(&dirs, filename);
-    for i in 0..dirs.len() {
-        if result.chars().count() <= max_width {
-            break;
-        }
-        if dirs[i].chars().count() > 1 {
-            dirs[i] = dirs[i].chars().next().unwrap_or('?').to_string();
-            result = join(&dirs, filename);
-        }
+    if path.chars().count() <= max_width {
+        return path.to_string();
     }
 
-    if result.chars().count() > max_width {
-        let chars: Vec<char> = result.chars().collect();
-        let keep = max_width.saturating_sub(3);
-        let truncate_at = chars.len().saturating_sub(keep);
-        result = format!("...{}", chars[truncate_at..].iter().collect::<String>());
-    }
-
-    result
+    let chars: Vec<char> = path.chars().collect();
+    let keep = max_width.saturating_sub(3);
+    let truncate_at = chars.len().saturating_sub(keep);
+    format!("...{}", chars[truncate_at..].iter().collect::<String>())
 }
 
 #[cfg(test)]
@@ -173,25 +144,14 @@ mod tests {
     }
 
     #[test]
-    fn abbreviates_only_as_many_leading_dirs_as_needed_to_fit() {
-        // Full path is 29 chars; abbreviating just the first 4 dirs (leaving
-        // "to" intact) is enough to fit width 20.
-        assert_eq!(
-            abbreviate_path("src/very/long/path/to/file.rs", 20),
-            "s/v/l/p/to/file.rs"
-        );
+    fn truncates_from_the_left_and_keeps_the_tail() {
+        let result = abbreviate_path("src/very/long/path/to/file.rs", 20);
+        assert_eq!(result, "...g/path/to/file.rs");
+        assert_eq!(result.chars().count(), 20);
     }
 
     #[test]
-    fn abbreviates_all_dirs_when_nothing_less_fits() {
-        assert_eq!(
-            abbreviate_path("src/very/long/path/to/file.rs", 17),
-            "s/v/l/p/t/file.rs"
-        );
-    }
-
-    #[test]
-    fn truncates_from_the_left_when_still_too_long() {
+    fn truncates_from_the_left_when_very_long() {
         let result = abbreviate_path("a/b/c/d/e/f/g/h/i/very_long_file", 20);
         assert_eq!(result, ".../i/very_long_file");
         assert_eq!(result.chars().count(), 20);

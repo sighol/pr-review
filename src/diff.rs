@@ -100,10 +100,13 @@ async fn render_with_delta(repo_path: &Path, raw_diff: &str) -> Result<String> {
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
-/// Pipes `content` through `$PAGER` (falling back to `less -R -F -X`, which
+/// Pipes `content` through `$PAGER` (falling back to `less -R -F`, which
 /// renders ANSI colors and skips paging when the content fits on one screen).
+/// Deliberately omits `-X`: it skips entering the terminal's alternate
+/// screen, which is what most terminal emulators key off of to translate
+/// mouse-wheel scrolling into arrow keys for the foreground app.
 async fn page(content: &str) -> Result<()> {
-    let pager_cmd = std::env::var("PAGER").unwrap_or_else(|_| "less -R -F -X".to_string());
+    let pager_cmd = std::env::var("PAGER").unwrap_or_else(|_| "less -R -F".to_string());
     let mut parts = pager_cmd.split_whitespace();
     let program = parts.next().unwrap_or("less");
     let args: Vec<&str> = parts.collect();
