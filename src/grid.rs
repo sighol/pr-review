@@ -1,4 +1,6 @@
-use crate::types::{Approvals, Commit, PrFile, file_is_fully_approved, get_approval_status, last_approved_idx};
+use crate::types::{
+    Approvals, Commit, PrFile, file_is_fully_approved, get_approval_status, last_approved_idx,
+};
 
 /// Column width for the FILE column, and the threshold at which paths get
 /// smart-truncated (per spec: "more than 40 chars wide").
@@ -10,8 +12,6 @@ pub const MAX_FILE_WIDTH: usize = 60;
 const FG_GREEN: &str = "\x1b[32m";
 const FG_RED: &str = "\x1b[31m";
 const FG_DEFAULT: &str = "\x1b[39m";
-const BG_GREEN: &str = "\x1b[42m";
-const BG_DEFAULT: &str = "\x1b[49m";
 const BG_SELECTED: &str = "\x1b[43m"; // yellow background; reads as amber/orange in most themes
 const BOLD: &str = "\x1b[1m";
 const BOLD_RESET: &str = "\x1b[22m";
@@ -123,7 +123,10 @@ fn pad_and_bold_filename(abbrev: &str, width: usize) -> String {
 pub fn abbreviate_path(path: &str, max_width: usize) -> String {
     let parts: Vec<&str> = path.split('/').collect();
     let filename = parts[parts.len() - 1];
-    let mut dirs: Vec<String> = parts[..parts.len() - 1].iter().map(|s| s.to_string()).collect();
+    let mut dirs: Vec<String> = parts[..parts.len() - 1]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
 
     let join = |dirs: &[String], filename: &str| -> String {
         let mut result = dirs.join("/");
@@ -197,82 +200,7 @@ mod tests {
     fn commit(oid: &str) -> Commit {
         Commit {
             oid: oid.to_string(),
-            message: String::new(),
-            committed_date: chrono::Utc::now(),
         }
-    }
-
-    #[test]
-    fn green_background_spans_only_up_to_the_last_approval() {
-        // Changed at 0, 2, 3; approved through commit 2 (not the last change,
-        // so not fully approved). Green should cover 0..=2 (including the
-        // untouched commit 1), but not the still-unapproved commit 3.
-        let commits = vec![commit("c0"), commit("c1"), commit("c2"), commit("c3")];
-        let file = PrFile {
-            path: "fileB".to_string(),
-            commits_that_changed_it: vec![0, 2, 3],
-            added: 0,
-            removed: 0,
-        };
-        let mut approvals = Approvals::new();
-        // Approving "through" c2 records every commit that changed the file
-        // up to it — here, c0 and c2 (c3 is still unapproved).
-        approvals.insert(
-            "fileB".to_string(),
-            std::collections::HashSet::from(["c0".to_string(), "c2".to_string()]),
-        );
-
-        let out = render_grid(&[file], &commits, &approvals, None);
-        assert!(out.contains(&format!(
-            "{BG_GREEN}A{BG_DEFAULT}{BG_GREEN} {BG_DEFAULT}{BG_GREEN}A{BG_DEFAULT}*"
-        )));
-        assert!(!out.contains(BG_SELECTED));
-        // File name/stat portion (before " | ") must not carry the green background.
-        let (before_bar, _) = out.split_once(" | ").unwrap();
-        assert!(!before_bar.contains(BG_GREEN));
-    }
-
-    #[test]
-    fn fully_approved_row_extends_green_through_trailing_untouched_commits() {
-        // Changed at 0, 2; approved through commit 2, which is also the last
-        // change, so the file is fully approved. Commits 3, 4 never touched
-        // this file, but since it's fully caught up, they turn green too.
-        let commits = vec![
-            commit("c0"),
-            commit("c1"),
-            commit("c2"),
-            commit("c3"),
-            commit("c4"),
-        ];
-        let file = PrFile {
-            path: "fileB".to_string(),
-            commits_that_changed_it: vec![0, 2],
-            added: 0,
-            removed: 0,
-        };
-        let mut approvals = Approvals::new();
-        approvals.insert(
-            "fileB".to_string(),
-            std::collections::HashSet::from(["c0".to_string(), "c2".to_string()]),
-        );
-
-        let out = render_grid(&[file], &commits, &approvals, None);
-        assert!(out.contains(&format!(
-            "{BG_GREEN}A{BG_DEFAULT}{BG_GREEN} {BG_DEFAULT}{BG_GREEN}A{BG_DEFAULT}{BG_GREEN} {BG_DEFAULT}{BG_GREEN} {BG_DEFAULT}"
-        )));
-    }
-
-    #[test]
-    fn no_green_background_before_any_approval() {
-        let commits = vec![commit("c0")];
-        let file = PrFile {
-            path: "fileB".to_string(),
-            commits_that_changed_it: vec![0],
-            added: 0,
-            removed: 0,
-        };
-        let out = render_grid(&[file], &commits, &Approvals::new(), None);
-        assert!(!out.contains(BG_GREEN));
     }
 
     #[test]

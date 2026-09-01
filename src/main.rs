@@ -17,8 +17,18 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     let (pr_number_arg, repo_arg, force_fetch, commit_arg, interactive_mode) = match &cli.command {
-        Command::Sync { pr_number, repo, fetch, commit } => (*pr_number, repo, *fetch, commit, true),
-        Command::Status { pr_number, repo, fetch, commit } => (*pr_number, repo, *fetch, commit, false),
+        Command::Sync {
+            pr_number,
+            repo,
+            fetch,
+            commit,
+        } => (*pr_number, repo, *fetch, commit, true),
+        Command::Status {
+            pr_number,
+            repo,
+            fetch,
+            commit,
+        } => (*pr_number, repo, *fetch, commit, false),
     };
 
     let repo_path = match repo_arg {
