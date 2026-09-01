@@ -28,6 +28,10 @@ pub enum Command {
         /// approvals only up through this commit, ignoring anything later.
         #[arg(long)]
         commit: Option<String>,
+        /// Render diffs side-by-side. Only takes effect when `delta` is
+        /// installed; ignored otherwise.
+        #[arg(long)]
+        side_by_side: bool,
     },
     /// Show the grid without entering interactive mode.
     Status {

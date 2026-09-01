@@ -16,20 +16,22 @@ use cli::{Cli, Command};
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    let (pr_number_arg, repo_arg, force_fetch, commit_arg, interactive_mode) = match &cli.command {
-        Command::Sync {
-            pr_number,
-            repo,
-            fetch,
-            commit,
-        } => (*pr_number, repo, *fetch, commit, true),
-        Command::Status {
-            pr_number,
-            repo,
-            fetch,
-            commit,
-        } => (*pr_number, repo, *fetch, commit, false),
-    };
+    let (pr_number_arg, repo_arg, force_fetch, commit_arg, interactive_mode, side_by_side) =
+        match &cli.command {
+            Command::Sync {
+                pr_number,
+                repo,
+                fetch,
+                commit,
+                side_by_side,
+            } => (*pr_number, repo, *fetch, commit, true, *side_by_side),
+            Command::Status {
+                pr_number,
+                repo,
+                fetch,
+                commit,
+            } => (*pr_number, repo, *fetch, commit, false, false),
+        };
 
     let repo_path = match repo_arg {
         Some(p) => p.clone(),
@@ -92,5 +94,14 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    interactive::run(&repo_path, &pool, pr_number, &files, &commits, &base_oid).await
+    interactive::run(
+        &repo_path,
+        &pool,
+        pr_number,
+        &files,
+        &commits,
+        &base_oid,
+        side_by_side,
+    )
+    .await
 }

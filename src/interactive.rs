@@ -20,6 +20,7 @@ pub async fn run(
     files: &[PrFile],
     commits: &[Commit],
     base_oid: &str,
+    side_by_side: bool,
 ) -> Result<()> {
     let mut approvals = db::load_approvals(pool, pr_number).await?;
     // `run` is only entered while `has_unapproved_changes` is true, so there's
@@ -52,6 +53,7 @@ pub async fn run(
                     commits,
                     base_oid,
                     &approvals,
+                    side_by_side,
                 )
                 .await?;
                 approvals = db::load_approvals(pool, pr_number).await?;
@@ -120,7 +122,7 @@ fn redraw(
 
 /// Reads a single keypress, entering raw mode only for the duration of the read
 /// so that the diff view's line-based `y/n` prompt keeps working normally.
-fn read_key() -> Result<KeyCode> {
+pub fn read_key() -> Result<KeyCode> {
     enable_raw_mode()?;
     let result = loop {
         match event::read()? {
