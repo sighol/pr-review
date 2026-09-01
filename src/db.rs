@@ -47,42 +47,47 @@ fn db_path(owner: &str, repo: &str) -> Result<PathBuf> {
 
 pub async fn load_approvals(pool: &SqlitePool, pr_number: u64) -> Result<Approvals> {
     let rows = sqlx::query(
-        "SELECT file_path, approved_up_to_commit FROM pr_review_state WHERE pr_number = ?",
+        "SELECT file_path, commit_oid FROM file_commit_approvals WHERE pr_number = ?",
     )
     .bind(pr_number as i64)
     .fetch_all(pool)
     .await
     .context("failed to load approvals")?;
 
-    Ok(rows
-        .into_iter()
-        .map(|row| {
-            (
-                row.get::<String, _>("file_path"),
-                row.get::<String, _>("approved_up_to_commit"),
-            )
-        })
-        .collect())
+    let mut approvals = Approvals::new();
+    for row in rows {
+        approvals
+            .entry(row.get::<String, _>("file_path"))
+            .or_default()
+            .insert(row.get::<String, _>("commit_oid"));
+    }
+    Ok(approvals)
 }
 
-pub async fn upsert_approval(
+/// Records every commit in `commit_oids` as approved for `file_path` — i.e.
+/// approving "through" a commit approves every change up to it, not just the
+/// latest one.
+pub async fn record_approvals(
     pool: &SqlitePool,
     pr_number: u64,
     file_path: &str,
-    commit_oid: &str,
+    commit_oids: &[String],
 ) -> Result<()> {
-    sqlx::query(
-        "INSERT INTO pr_review_state (pr_number, file_path, approved_up_to_commit, approved_at)
-         VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-         ON CONFLICT(pr_number, file_path)
-         DO UPDATE SET approved_up_to_commit = excluded.approved_up_to_commit, approved_at = CURRENT_TIMESTAMP",
-    )
-    .bind(pr_number as i64)
-    .bind(file_path)
-    .bind(commit_oid)
-    .execute(pool)
-    .await
-    .context("failed to upsert approval")?;
+    let mut tx = pool.begin().await.context("failed to start transaction")?;
+    for commit_oid in commit_oids {
+        sqlx::query(
+            "INSERT INTO file_commit_approvals (pr_number, file_path, commit_oid)
+             VALUES (?, ?, ?)
+             ON CONFLICT(pr_number, file_path, commit_oid) DO NOTHING",
+        )
+        .bind(pr_number as i64)
+        .bind(file_path)
+        .bind(commit_oid)
+        .execute(&mut *tx)
+        .await
+        .context("failed to record approval")?;
+    }
+    tx.commit().await.context("failed to commit approvals")?;
     Ok(())
 }
 
@@ -140,15 +145,34 @@ mod tests {
 
         assert!(load_approvals(&pool, 1).await.unwrap().is_empty());
 
-        upsert_approval(&pool, 1, "src/main.rs", "abc123").await.unwrap();
+        record_approvals(&pool, 1, "src/main.rs", &["abc123".to_string()])
+            .await
+            .unwrap();
         let approvals = load_approvals(&pool, 1).await.unwrap();
-        assert_eq!(approvals.get("src/main.rs"), Some(&"abc123".to_string()));
+        assert_eq!(
+            approvals.get("src/main.rs"),
+            Some(&std::collections::HashSet::from(["abc123".to_string()]))
+        );
 
-        // Re-approving the same file through a later commit updates in place.
-        upsert_approval(&pool, 1, "src/main.rs", "def456").await.unwrap();
+        // Approving through a later commit records every commit up to it,
+        // accumulating with (not replacing) what was already recorded.
+        record_approvals(
+            &pool,
+            1,
+            "src/main.rs",
+            &["abc123".to_string(), "def456".to_string()],
+        )
+        .await
+        .unwrap();
         let approvals = load_approvals(&pool, 1).await.unwrap();
         assert_eq!(approvals.len(), 1);
-        assert_eq!(approvals.get("src/main.rs"), Some(&"def456".to_string()));
+        assert_eq!(
+            approvals.get("src/main.rs"),
+            Some(&std::collections::HashSet::from([
+                "abc123".to_string(),
+                "def456".to_string()
+            ]))
+        );
 
         // Approvals are scoped per PR number.
         assert!(load_approvals(&pool, 2).await.unwrap().is_empty());

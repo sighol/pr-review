@@ -80,6 +80,30 @@ async fn rev_parse(repo_path: &Path, rev: &str) -> Result<Option<String>> {
     Ok(Some(String::from_utf8_lossy(&output.stdout).trim().to_string()))
 }
 
+/// Resolves `rev` (a hash, tag, branch, etc.) to a full commit oid, for use
+/// with `--commit`.
+pub async fn resolve_commit(repo_path: &Path, rev: &str) -> Result<String> {
+    rev_parse(repo_path, &format!("{rev}^{{commit}}"))
+        .await?
+        .with_context(|| format!("'{rev}' is not a valid commit in this repo"))
+}
+
+/// Errors out unless `oid` is `ancestor` or a descendant of it — used to
+/// sanity-check that `--commit` actually falls within the PR's range.
+pub async fn ensure_is_descendant(repo_path: &Path, ancestor: &str, oid: &str) -> Result<()> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repo_path)
+        .args(["merge-base", "--is-ancestor", ancestor, oid])
+        .output()
+        .await
+        .context("failed to run git merge-base --is-ancestor")?;
+    if !output.status.success() {
+        bail!("commit {oid} is not a descendant of the PR base ({ancestor}) — is it really part of this PR?");
+    }
+    Ok(())
+}
+
 /// Derives the GitHub `owner/repo` from the `origin` remote, so a PR
 /// reference can be omitted once a repo has an active PR stored.
 pub async fn origin_owner_repo(repo_path: &Path) -> Result<(String, String)> {
@@ -354,6 +378,56 @@ mod tests {
 
         let stats = diffstat_in_range(&dir, &base_oid, &head_oid).await.unwrap();
         assert_eq!(stats.get("a.txt").copied(), Some((2, 1)));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn resolve_commit_and_ancestry_check() {
+        let dir = std::env::temp_dir().join(format!("pr-review-git-test-ancestry-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let run = |args: &[&str]| {
+            let status = std::process::Command::new("git")
+                .arg("-C")
+                .arg(&dir)
+                .args(args)
+                .status()
+                .unwrap();
+            assert!(status.success());
+        };
+        let rev_parse_head = || {
+            let output = std::process::Command::new("git")
+                .arg("-C")
+                .arg(&dir)
+                .args(["rev-parse", "HEAD"])
+                .output()
+                .unwrap();
+            String::from_utf8_lossy(&output.stdout).trim().to_string()
+        };
+
+        run(&["init", "-q"]);
+        run(&["config", "user.email", "test@example.com"]);
+        run(&["config", "user.name", "Test"]);
+
+        std::fs::write(dir.join("a.txt"), "base\n").unwrap();
+        run(&["add", "."]);
+        run(&["commit", "-q", "-m", "base"]);
+        let base_oid = rev_parse_head();
+
+        std::fs::write(dir.join("a.txt"), "mid\n").unwrap();
+        run(&["add", "."]);
+        run(&["commit", "-q", "-m", "mid"]);
+        let mid_oid = rev_parse_head();
+
+        let resolved = resolve_commit(&dir, &mid_oid[..8]).await.unwrap();
+        assert_eq!(resolved, mid_oid);
+
+        assert!(resolve_commit(&dir, "not-a-commit").await.is_err());
+
+        ensure_is_descendant(&dir, &base_oid, &mid_oid).await.unwrap();
+        assert!(ensure_is_descendant(&dir, &mid_oid, &base_oid).await.is_err());
 
         let _ = std::fs::remove_dir_all(&dir);
     }
