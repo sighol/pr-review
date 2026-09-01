@@ -148,12 +148,19 @@ pub async fn run(
             None => rendered.push_str(&skin.term_text("## Conversation\n").to_string()),
         }
 
+        let resolved_commit = resolutions.get(&discussion.id);
+
         let mut markdown = String::new();
         for comment in &discussion.comments {
             markdown.push_str(&format!(
                 "**{}** *{}*\n\n{}\n\n---\n\n",
                 comment.author, comment.created_at, comment.body
             ));
+            if let Some(resolved) = resolved_commit
+                && resolved == &comment.id
+            {
+                markdown.push_str("\n**\x1b[34m--- NEW COMMENTS ---\x1b[0m **\n\n")
+            }
         }
         rendered.push_str(&skin.term_text(&markdown).to_string());
 
