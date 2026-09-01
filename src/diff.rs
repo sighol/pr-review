@@ -56,7 +56,12 @@ pub async fn show_diff_and_prompt(
 /// Renders the diff for `file_path` between two oids, running it through
 /// `delta` for real syntax highlighting if it's installed, else falling back
 /// to plain `git diff --color=always`.
-async fn render_diff(repo_path: &Path, from_oid: &str, to_oid: &str, file_path: &str) -> Result<String> {
+async fn render_diff(
+    repo_path: &Path,
+    from_oid: &str,
+    to_oid: &str,
+    file_path: &str,
+) -> Result<String> {
     if delta_available().await {
         let raw = git::plain_diff(repo_path, from_oid, to_oid, file_path).await?;
         render_with_delta(repo_path, &raw).await
