@@ -3,7 +3,7 @@ use std::path::Path;
 
 use anyhow::Result;
 use crossterm::cursor::MoveTo;
-use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use crossterm::execute;
 use crossterm::terminal::{Clear, ClearType, disable_raw_mode, enable_raw_mode};
 use sqlx::SqlitePool;
@@ -127,6 +127,15 @@ pub fn read_key() -> Result<KeyCode> {
     enable_raw_mode()?;
     let result = loop {
         match event::read()? {
+            Event::Key(key_event)
+                if key_event.is_press()
+                    && key_event.modifiers.contains(KeyModifiers::CONTROL)
+                    && key_event.code == KeyCode::Char('c') =>
+            {
+                disable_raw_mode()?;
+                eprintln!("Keyboard interrupted");
+                std::process::exit(130);
+            }
             Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
                 break Ok(key_event.code);
             }

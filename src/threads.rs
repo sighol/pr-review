@@ -167,7 +167,7 @@ pub async fn run(
         io::stdout().flush()?;
 
         match read_key().unwrap_or(KeyCode::Enter) {
-            KeyCode::Char('q') | KeyCode::Char('c') => return Ok(()),
+            KeyCode::Char('q') => return Ok(()),
             KeyCode::Char('y') => {
                 db::save_thread_resolution(
                     pool,
