@@ -45,6 +45,7 @@ pub async fn run(
             }
             KeyCode::Enter => {
                 redraw(files, commits, &approvals, Some(selected_idx));
+                println!();
                 diff::show_diff_and_prompt(
                     repo_path,
                     pool,
