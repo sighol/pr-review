@@ -55,11 +55,18 @@ pub fn get_approval_status(
     }
 }
 
+/// A file is fully approved once none of its cells are `Unapproved` — since
+/// approval is "through" a commit, this is equivalent to the latest commit
+/// that changed the file being approved.
+pub fn file_is_fully_approved(file: &PrFile, commits: &[Commit], approvals: &Approvals) -> bool {
+    !(0..commits.len())
+        .any(|idx| get_approval_status(file, idx, commits, approvals) == ApprovalStatus::Unapproved)
+}
+
 pub fn has_unapproved_changes(files: &[PrFile], commits: &[Commit], approvals: &Approvals) -> bool {
-    files.iter().any(|file| {
-        (0..commits.len())
-            .any(|idx| get_approval_status(file, idx, commits, approvals) == ApprovalStatus::Unapproved)
-    })
+    files
+        .iter()
+        .any(|file| !file_is_fully_approved(file, commits, approvals))
 }
 
 /// Latest commit index (in `commits`) that changed this file.

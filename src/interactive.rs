@@ -11,7 +11,7 @@ use sqlx::SqlitePool;
 use crate::db;
 use crate::diff;
 use crate::grid::render_grid;
-use crate::types::{Commit, PrFile, has_unapproved_changes};
+use crate::types::{Approvals, Commit, PrFile, file_is_fully_approved, has_unapproved_changes};
 
 pub async fn run(
     repo_path: &Path,
@@ -22,7 +22,9 @@ pub async fn run(
     base_oid: &str,
 ) -> Result<()> {
     let mut approvals = db::load_approvals(pool, pr_number).await?;
-    let mut selected_idx = 0usize;
+    // `run` is only entered while `has_unapproved_changes` is true, so there's
+    // always at least one selectable (not fully approved) file.
+    let mut selected_idx = first_unapproved(files, commits, &approvals);
 
     loop {
         redraw(files, commits, &approvals, Some(selected_idx));
@@ -35,10 +37,10 @@ pub async fn run(
 
         match key {
             KeyCode::Up | KeyCode::Char('k') => {
-                selected_idx = (selected_idx + files.len() - 1) % files.len();
+                selected_idx = step(files, commits, &approvals, selected_idx, false);
             }
             KeyCode::Down | KeyCode::Char('j') => {
-                selected_idx = (selected_idx + 1) % files.len();
+                selected_idx = step(files, commits, &approvals, selected_idx, true);
             }
             KeyCode::Enter => {
                 redraw(files, commits, &approvals, Some(selected_idx));
@@ -53,6 +55,10 @@ pub async fn run(
                 )
                 .await?;
                 approvals = db::load_approvals(pool, pr_number).await?;
+                // The file just approved is no longer selectable; move on.
+                if file_is_fully_approved(&files[selected_idx], commits, &approvals) {
+                    selected_idx = step(files, commits, &approvals, selected_idx, true);
+                }
             }
             KeyCode::Char('q') => break,
             _ => {}
@@ -66,6 +72,30 @@ pub async fn run(
     }
 
     Ok(())
+}
+
+fn first_unapproved(files: &[PrFile], commits: &[Commit], approvals: &Approvals) -> usize {
+    files
+        .iter()
+        .position(|f| !file_is_fully_approved(f, commits, approvals))
+        .expect("run() is only entered when at least one file has unapproved changes")
+}
+
+/// Moves the selection one step in the given direction, skipping over fully
+/// approved files (which can't be selected). Wraps around, and is a no-op if
+/// every file happens to be fully approved (defensive; shouldn't occur).
+fn step(files: &[PrFile], commits: &[Commit], approvals: &Approvals, from: usize, forward: bool) -> usize {
+    let len = files.len();
+    let mut idx = from;
+    loop {
+        idx = if forward { (idx + 1) % len } else { (idx + len - 1) % len };
+        if !file_is_fully_approved(&files[idx], commits, approvals) {
+            return idx;
+        }
+        if idx == from {
+            return idx;
+        }
+    }
 }
 
 fn redraw(files: &[PrFile], commits: &[Commit], approvals: &crate::types::Approvals, selected_idx: Option<usize>) {

@@ -1,8 +1,16 @@
-use crate::types::{Approvals, Commit, PrFile, get_approval_status};
+use crate::types::{ApprovalStatus, Approvals, Commit, PrFile, file_is_fully_approved, get_approval_status};
 
 /// Column width for the FILE column, and the threshold at which paths get
 /// smart-truncated (per spec: "more than 40 chars wide").
 pub const MAX_FILE_WIDTH: usize = 40;
+
+// Raw ANSI SGR codes. Approved cells/lines use fg-only set/reset (not a full
+// `\x1b[0m` reset) so they can be nested inside a selected row's background
+// without clobbering it.
+const FG_GREEN: &str = "\x1b[32m";
+const FG_DEFAULT: &str = "\x1b[39m";
+const BG_SELECTED: &str = "\x1b[43m"; // yellow background; reads as amber/orange in most themes
+const RESET: &str = "\x1b[0m";
 
 pub fn render_grid(
     files: &[PrFile],
@@ -22,17 +30,41 @@ pub fn render_grid(
 
     for (idx, file) in files.iter().enumerate() {
         let abbrev = abbreviate_path(&file.path, MAX_FILE_WIDTH);
-        let approval_str: String = (0..commits.len())
-            .map(|c| get_approval_status(file, c, commits, approvals).as_char())
-            .collect();
-        let cursor = match selected_idx {
-            Some(i) if i == idx => "\u{2192}",
-            _ => " ",
-        };
-        out.push_str(&format!(
-            "{cursor} {abbrev:>pad$} | {approval_str}\n",
-            pad = MAX_FILE_WIDTH
-        ));
+        let fully_approved = file_is_fully_approved(file, commits, approvals);
+        let is_selected = selected_idx == Some(idx);
+
+        let cursor = if is_selected { "\u{2192}" } else { " " };
+        let prefix = format!("{cursor} {abbrev:>pad$} | ", pad = MAX_FILE_WIDTH);
+
+        if is_selected {
+            out.push_str(BG_SELECTED);
+        }
+
+        if fully_approved {
+            out.push_str(FG_GREEN);
+            out.push_str(&prefix);
+            for c in 0..commits.len() {
+                out.push(get_approval_status(file, c, commits, approvals).as_char());
+            }
+            out.push_str(FG_DEFAULT);
+        } else {
+            out.push_str(&prefix);
+            for c in 0..commits.len() {
+                let status = get_approval_status(file, c, commits, approvals);
+                if status == ApprovalStatus::Approved {
+                    out.push_str(FG_GREEN);
+                    out.push(status.as_char());
+                    out.push_str(FG_DEFAULT);
+                } else {
+                    out.push(status.as_char());
+                }
+            }
+        }
+
+        if is_selected {
+            out.push_str(RESET);
+        }
+        out.push('\n');
     }
 
     out
@@ -94,5 +126,57 @@ mod tests {
         let result = abbreviate_path("a/b/c/d/e/f/g/h/i/very_long_file", 20);
         assert_eq!(result, ".../i/very_long_file");
         assert_eq!(result.chars().count(), 20);
+    }
+
+    fn commit(oid: &str) -> Commit {
+        Commit {
+            oid: oid.to_string(),
+            message: String::new(),
+            committed_date: chrono::Utc::now(),
+        }
+    }
+
+    #[test]
+    fn colors_approved_cells_green_but_not_the_whole_line() {
+        let commits = vec![commit("c0"), commit("c1")];
+        let file = PrFile {
+            path: "fileB".to_string(),
+            commits_that_changed_it: vec![0, 1],
+        };
+        let mut approvals = Approvals::new();
+        approvals.insert("fileB".to_string(), "c0".to_string());
+
+        let out = render_grid(&[file], &commits, &approvals, None);
+        assert!(out.contains(&format!("{FG_GREEN}A{FG_DEFAULT}*")));
+        assert!(!out.contains(BG_SELECTED));
+    }
+
+    #[test]
+    fn colors_whole_line_green_when_fully_approved() {
+        let commits = vec![commit("c0"), commit("c1")];
+        let file = PrFile {
+            path: "fileB".to_string(),
+            commits_that_changed_it: vec![0, 1],
+        };
+        let mut approvals = Approvals::new();
+        approvals.insert("fileB".to_string(), "c1".to_string());
+
+        let out = render_grid(&[file], &commits, &approvals, None);
+        assert!(out.contains(&format!("{FG_GREEN}  {:>pad$} | AA{FG_DEFAULT}", "fileB", pad = MAX_FILE_WIDTH)));
+    }
+
+    #[test]
+    fn selected_row_gets_background_and_full_reset() {
+        let commits = vec![commit("c0")];
+        let file = PrFile {
+            path: "fileB".to_string(),
+            commits_that_changed_it: vec![0],
+        };
+        let approvals = Approvals::new();
+
+        let out = render_grid(&[file], &commits, &approvals, Some(0));
+        let row = out.lines().last().unwrap();
+        assert!(row.starts_with(BG_SELECTED));
+        assert!(row.ends_with(RESET));
     }
 }
