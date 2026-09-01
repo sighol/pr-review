@@ -39,7 +39,7 @@ pub async fn show_diff_and_prompt(
 
     let mut input = String::new();
     io::stdin().read_line(&mut input)?;
-    let approved = input.trim() == "y";
+    let approved = input.trim().eq_ignore_ascii_case("y");
     if approved {
         // Every commit that ever changed this file (not just the latest) gets
         // recorded, since approving "through" a commit approves all of them.
