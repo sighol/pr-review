@@ -10,6 +10,7 @@ pub struct PrRefs {
     pub base_ref_name: String,
     pub head_oid: String,
     pub head_ref_name: String,
+    pub title: String,
 }
 
 #[derive(Deserialize)]
@@ -20,6 +21,7 @@ struct PrViewJson {
     head_ref_oid: String,
     #[serde(rename = "headRefName")]
     head_ref_name: String,
+    title: String,
 }
 
 pub async fn fetch_pr_refs(owner: &str, repo: &str, pr_number: u64) -> Result<PrRefs> {
@@ -31,7 +33,7 @@ pub async fn fetch_pr_refs(owner: &str, repo: &str, pr_number: u64) -> Result<Pr
             "--repo",
             &format!("{owner}/{repo}"),
             "--json",
-            "baseRefName,headRefOid,headRefName",
+            "baseRefName,headRefOid,headRefName,title",
         ])
         .output()
         .await
@@ -51,6 +53,7 @@ pub async fn fetch_pr_refs(owner: &str, repo: &str, pr_number: u64) -> Result<Pr
         base_ref_name: format!("origin/{}", parsed.base_ref_name),
         head_oid: parsed.head_ref_oid,
         head_ref_name: parsed.head_ref_name,
+        title: parsed.title,
     })
 }
 

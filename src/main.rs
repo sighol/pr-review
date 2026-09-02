@@ -98,7 +98,7 @@ async fn main() -> Result<()> {
         .unwrap_or(true);
     let need_fetch = force_fetch || switching_pr;
 
-    let (base_ref_name, mut head_oid, _head_ref_name) = if need_fetch {
+    let (base_ref_name, mut head_oid, _head_ref_name, pr_title) = if need_fetch {
         eprintln!("Fetching PR #{pr_number} from GitHub...");
         let pr_refs = github::fetch_pr_refs(&owner, &repo_name, pr_number).await?;
         eprintln!("Fetching origin (branch {})...", pr_refs.head_ref_name);
@@ -109,18 +109,26 @@ async fn main() -> Result<()> {
             pr_number,
             &pr_refs.base_ref_name,
             &pr_refs.head_ref_name,
+            &pr_refs.title,
         )
         .await?;
         (
             pr_refs.base_ref_name,
             pr_refs.head_oid,
             pr_refs.head_ref_name,
+            pr_refs.title,
         )
     } else {
         let active = stored_active.expect("!need_fetch implies stored_active matched pr_number");
         let head_oid = git::resolve_branch_oid(&repo_path, &active.head_ref_name).await?;
-        (active.base_ref_name, head_oid, active.head_ref_name)
+        (
+            active.base_ref_name,
+            head_oid,
+            active.head_ref_name,
+            active.title,
+        )
     };
+    let pr_url = format!("https://github.com/{owner}/{repo_name}/pull/{pr_number}");
 
     if let Some(commit) = commit_arg {
         let resolved = git::resolve_commit(&repo_path, commit).await?;
@@ -139,13 +147,23 @@ async fn main() -> Result<()> {
     let approvals = db::load_approvals(&pool, pr_number).await?;
 
     if !types::has_unapproved_changes(&files, &commits, &approvals) {
-        print!("{}", grid::render_grid(&files, &commits, &approvals, None));
+        print!(
+            "{}",
+            grid::render_grid(
+                pr_number, &pr_title, &pr_url, &files, &commits, &approvals, None
+            )
+        );
         println!("\n\u{2713} All files approved!");
         return Ok(());
     }
 
     if !interactive_mode {
-        print!("{}", grid::render_grid(&files, &commits, &approvals, None));
+        print!(
+            "{}",
+            grid::render_grid(
+                pr_number, &pr_title, &pr_url, &files, &commits, &approvals, None
+            )
+        );
         return Ok(());
     }
 
@@ -153,6 +171,8 @@ async fn main() -> Result<()> {
         &repo_path,
         &pool,
         pr_number,
+        &pr_title,
+        &pr_url,
         &files,
         &commits,
         &base_oid,

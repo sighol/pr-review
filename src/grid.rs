@@ -18,12 +18,22 @@ const BOLD_RESET: &str = "\x1b[22m";
 const RESET: &str = "\x1b[0m";
 
 pub fn render_grid(
+    pr_number: u64,
+    pr_title: &str,
+    pr_url: &str,
     files: &[PrFile],
     commits: &[Commit],
     approvals: &Approvals,
     selected_idx: Option<usize>,
 ) -> String {
     let mut out = String::new();
+
+    out.push_str(BOLD);
+    out.push_str(&hyperlink(pr_url, &format!("#{pr_number}")));
+    out.push_str(BOLD_RESET);
+    out.push(' ');
+    out.push_str(pr_title);
+    out.push_str("\n\n");
 
     let added_width = files
         .iter()
@@ -116,6 +126,12 @@ fn pad_and_bold_filename(abbrev: &str, width: usize) -> String {
     )
 }
 
+/// Wraps `text` in an OSC 8 terminal hyperlink escape sequence pointing at
+/// `url`.
+fn hyperlink(url: &str, text: &str) -> String {
+    format!("\x1b]8;;{url}\x1b\\{text}\x1b]8;;\x1b\\")
+}
+
 /// Shortens a path to fit within `max_width` by truncating from the left and
 /// prefixing with `...`, keeping the tail (and therefore the filename) intact.
 pub fn abbreviate_path(path: &str, max_width: usize) -> String {
@@ -179,19 +195,43 @@ mod tests {
             removed: 50,
         };
 
-        let out = render_grid(&[short, long], &commits, &Approvals::new(), None);
+        let out = render_grid(
+            123,
+            "Some title",
+            "https://github.com/o/r/pull/123",
+            &[short, long],
+            &commits,
+            &Approvals::new(),
+            None,
+        );
         let lines: Vec<&str> = out.lines().collect();
 
         // "1/0" pads "1" to width 3 (matching "100") and "0" to width 2
         // (matching "50"), so both '/' land at the same column.
-        assert!(lines[2].contains(&format!("{FG_GREEN}  1{FG_DEFAULT}/{FG_RED} 0{FG_DEFAULT}")));
-        assert!(lines[3].contains(&format!("{FG_GREEN}100{FG_DEFAULT}/{FG_RED}50{FG_DEFAULT}")));
+        assert!(lines[4].contains(&format!("{FG_GREEN}  1{FG_DEFAULT}/{FG_RED} 0{FG_DEFAULT}")));
+        assert!(lines[5].contains(&format!("{FG_GREEN}100{FG_DEFAULT}/{FG_RED}50{FG_DEFAULT}")));
 
         let slash_col = |line: &str| line.find('/').unwrap();
-        assert_eq!(slash_col(lines[2]), slash_col(lines[3]));
+        assert_eq!(slash_col(lines[4]), slash_col(lines[5]));
 
         let bar_col = |line: &str| line.find(" | ").unwrap();
-        assert_eq!(bar_col(lines[2]), bar_col(lines[3]));
+        assert_eq!(bar_col(lines[4]), bar_col(lines[5]));
+    }
+
+    #[test]
+    fn header_shows_pr_number_as_hyperlink_and_title() {
+        let out = render_grid(
+            123,
+            "Some title",
+            "https://github.com/o/r/pull/123",
+            &[],
+            &[],
+            &Approvals::new(),
+            None,
+        );
+        let header = out.lines().next().unwrap();
+        assert!(header.contains(&hyperlink("https://github.com/o/r/pull/123", "#123")));
+        assert!(header.contains("Some title"));
     }
 
     #[test]
@@ -219,7 +259,15 @@ mod tests {
         };
         let approvals = Approvals::new();
 
-        let out = render_grid(&[file], &commits, &approvals, Some(0));
+        let out = render_grid(
+            1,
+            "Title",
+            "https://github.com/o/r/pull/1",
+            &[file],
+            &commits,
+            &approvals,
+            Some(0),
+        );
         let row = out.lines().last().unwrap();
         assert!(row.starts_with(BG_SELECTED));
         assert!(row.ends_with(RESET));
