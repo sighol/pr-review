@@ -11,6 +11,7 @@ pub struct ActivePr {
     pub pr_number: u64,
     pub base_ref_name: String,
     pub head_ref_name: String,
+    pub title: String,
 }
 
 pub async fn open(owner: &str, repo: &str) -> Result<SqlitePool> {
@@ -92,16 +93,18 @@ pub async fn record_approvals(
 }
 
 pub async fn load_active_pr(pool: &SqlitePool) -> Result<Option<ActivePr>> {
-    let row =
-        sqlx::query("SELECT pr_number, base_ref_name, head_ref_name FROM active_pr WHERE id = 1")
-            .fetch_optional(pool)
-            .await
-            .context("failed to load active PR")?;
+    let row = sqlx::query(
+        "SELECT pr_number, base_ref_name, head_ref_name, title FROM active_pr WHERE id = 1",
+    )
+    .fetch_optional(pool)
+    .await
+    .context("failed to load active PR")?;
 
     Ok(row.map(|row| ActivePr {
         pr_number: row.get::<i64, _>("pr_number") as u64,
         base_ref_name: row.get::<String, _>("base_ref_name"),
         head_ref_name: row.get::<String, _>("head_ref_name"),
+        title: row.get::<String, _>("title"),
     }))
 }
 
@@ -110,16 +113,18 @@ pub async fn save_active_pr(
     pr_number: u64,
     base_ref_name: &str,
     head_ref_name: &str,
+    title: &str,
 ) -> Result<()> {
     sqlx::query(
-        "INSERT INTO active_pr (id, pr_number, base_ref_name, head_ref_name)
-         VALUES (1, ?, ?, ?)
+        "INSERT INTO active_pr (id, pr_number, base_ref_name, head_ref_name, title)
+         VALUES (1, ?, ?, ?, ?)
          ON CONFLICT(id)
-         DO UPDATE SET pr_number = excluded.pr_number, base_ref_name = excluded.base_ref_name, head_ref_name = excluded.head_ref_name",
+         DO UPDATE SET pr_number = excluded.pr_number, base_ref_name = excluded.base_ref_name, head_ref_name = excluded.head_ref_name, title = excluded.title",
     )
     .bind(pr_number as i64)
     .bind(base_ref_name)
     .bind(head_ref_name)
+    .bind(title)
     .execute(pool)
     .await
     .context("failed to save active PR")?;
@@ -247,22 +252,24 @@ mod tests {
 
         assert!(load_active_pr(&pool).await.unwrap().is_none());
 
-        save_active_pr(&pool, 42, "base1", "feature-a")
+        save_active_pr(&pool, 42, "base1", "feature-a", "Title one")
             .await
             .unwrap();
         let active = load_active_pr(&pool).await.unwrap().unwrap();
         assert_eq!(active.pr_number, 42);
         assert_eq!(active.base_ref_name, "base1");
         assert_eq!(active.head_ref_name, "feature-a");
+        assert_eq!(active.title, "Title one");
 
         // Only one active PR is tracked at a time; saving again overwrites it.
-        save_active_pr(&pool, 43, "base2", "feature-b")
+        save_active_pr(&pool, 43, "base2", "feature-b", "Title two")
             .await
             .unwrap();
         let active = load_active_pr(&pool).await.unwrap().unwrap();
         assert_eq!(active.pr_number, 43);
         assert_eq!(active.base_ref_name, "base2");
         assert_eq!(active.head_ref_name, "feature-b");
+        assert_eq!(active.title, "Title two");
 
         pool.close().await;
         let _ = std::fs::remove_file(&path);

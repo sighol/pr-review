@@ -17,6 +17,8 @@ pub async fn run(
     repo_path: &Path,
     pool: &SqlitePool,
     pr_number: u64,
+    pr_title: &str,
+    pr_url: &str,
     files: &[PrFile],
     commits: &[Commit],
     base_oid: &str,
@@ -28,7 +30,15 @@ pub async fn run(
     let mut selected_idx = first_unapproved(files, commits, &approvals);
 
     loop {
-        redraw(files, commits, &approvals, Some(selected_idx));
+        redraw(
+            pr_number,
+            pr_title,
+            pr_url,
+            files,
+            commits,
+            &approvals,
+            Some(selected_idx),
+        );
         println!();
         println!("Use arrow keys (\u{2191}\u{2193}) or j/k to navigate");
         println!("Press ENTER to review file");
@@ -44,7 +54,15 @@ pub async fn run(
                 selected_idx = step(files, commits, &approvals, selected_idx, true);
             }
             KeyCode::Enter => {
-                redraw(files, commits, &approvals, Some(selected_idx));
+                redraw(
+                    pr_number,
+                    pr_title,
+                    pr_url,
+                    files,
+                    commits,
+                    &approvals,
+                    Some(selected_idx),
+                );
                 println!();
                 diff::show_diff_and_prompt(
                     repo_path,
@@ -68,7 +86,9 @@ pub async fn run(
         }
 
         if !has_unapproved_changes(files, commits, &approvals) {
-            redraw(files, commits, &approvals, None);
+            redraw(
+                pr_number, pr_title, pr_url, files, commits, &approvals, None,
+            );
             println!("\n\u{2713} All files approved!");
             break;
         }
@@ -112,13 +132,27 @@ fn step(
 }
 
 fn redraw(
+    pr_number: u64,
+    pr_title: &str,
+    pr_url: &str,
     files: &[PrFile],
     commits: &[Commit],
     approvals: &crate::types::Approvals,
     selected_idx: Option<usize>,
 ) {
     let _ = execute!(stdout(), Clear(ClearType::All), MoveTo(0, 0));
-    print!("{}", render_grid(files, commits, approvals, selected_idx));
+    print!(
+        "{}",
+        render_grid(
+            pr_number,
+            pr_title,
+            pr_url,
+            files,
+            commits,
+            approvals,
+            selected_idx
+        )
+    );
 }
 
 /// Reads a single keypress, entering raw mode only for the duration of the read
