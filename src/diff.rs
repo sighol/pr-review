@@ -43,6 +43,10 @@ pub async fn show_diff_and_prompt(
     io::stdout().flush()?;
 
     let input = read_key().unwrap_or(KeyCode::Enter);
+    if input == KeyCode::Char('q') {
+        println!();
+        std::process::exit(0);
+    }
     let approved = input == KeyCode::Char('y');
     if approved {
         // Every commit that ever changed this file (not just the latest) gets
