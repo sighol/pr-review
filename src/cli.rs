@@ -57,6 +57,15 @@ pub enum Command {
         #[arg(long)]
         side_by_side: bool,
     },
+    /// Print the currently active PR number for this repo, or exit 1 if
+    /// none is set.
+    Get,
+    /// Set the active PR for this repo, fetching it from GitHub so it's
+    /// ready for subsequent `diff`/`status`/`threads` calls.
+    Set {
+        #[arg(value_parser = parse_pr_number)]
+        pr_number: u64,
+    },
 }
 
 /// Accepts a PR number with an optional leading `#`, e.g. `123` or `#123`.
