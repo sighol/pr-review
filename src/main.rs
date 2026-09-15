@@ -9,9 +9,9 @@ mod pager;
 mod threads;
 mod types;
 
-use std::path::PathBuf;
+use std::path::Path;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use clap::Parser;
 use sqlx::SqlitePool;
 
@@ -21,21 +21,9 @@ use cli::{Cli, Command};
 /// active — either from `pr_number_arg` or (if omitted) the last-reviewed PR
 /// for this repo. Shared by every subcommand.
 async fn resolve_pr(
-    repo_arg: &Option<PathBuf>,
+    repo_path: &Path,
     pr_number_arg: Option<u64>,
-) -> Result<(
-    PathBuf,
-    String,
-    String,
-    SqlitePool,
-    u64,
-    Option<db::ActivePr>,
-)> {
-    let repo_path = match repo_arg {
-        Some(p) => p.clone(),
-        None => std::env::current_dir()?,
-    };
-
+) -> Result<(String, String, SqlitePool, u64, Option<db::ActivePr>)> {
     let (owner, repo_name) = git::origin_owner_repo(&repo_path).await?;
 
     let pool = db::open(&owner, &repo_name).await?;
@@ -48,20 +36,59 @@ async fn resolve_pr(
              run e.g. `pr-review sync 123`",
         )?;
 
-    Ok((repo_path, owner, repo_name, pool, pr_number, stored_active))
+    Ok((owner, repo_name, pool, pr_number, stored_active))
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
 
+    let repo_path = match cli.repo {
+        Some(p) => p.clone(),
+        None => std::env::current_dir()?,
+    };
+
+    if let Command::Get = &cli.command {
+        let (owner, repo_name) = git::origin_owner_repo(&repo_path).await?;
+        let pool = db::open(&owner, &repo_name).await?;
+        return match db::load_active_pr(&pool).await? {
+            Some(active) => {
+                println!("{}", active.pr_number);
+                Ok(())
+            }
+            None => bail!("no active PR set for this repo; run e.g. `pr-review set 123`"),
+        };
+    }
+
+    if let Command::Set { pr_number } = &cli.command {
+        let (owner, repo_name) = git::origin_owner_repo(&repo_path).await?;
+        let pool = db::open(&owner, &repo_name).await?;
+        let pr_number = *pr_number;
+
+        let pr_refs = github::fetch_pr_refs(&owner, &repo_name, pr_number).await?;
+        eprintln!("Fetching origin (branch {})...", pr_refs.head_ref_name);
+        git::fetch_origin(&repo_path).await?;
+        git::ensure_commits_available(&repo_path, &[&pr_refs.base_ref_name, &pr_refs.head_oid])
+            .await?;
+        db::save_active_pr(
+            &pool,
+            pr_number,
+            &pr_refs.base_ref_name,
+            &pr_refs.head_ref_name,
+            &pr_refs.title,
+        )
+        .await?;
+
+        eprintln!("Set active PR to #{pr_number}");
+        return Ok(());
+    }
+
     if let Command::Threads {
         pr_number,
         side_by_side,
     } = &cli.command
     {
-        let (repo_path, owner, repo_name, pool, pr_number, _) =
-            resolve_pr(&cli.repo, *pr_number).await?;
+        let (owner, repo_name, pool, pr_number, _) = resolve_pr(&repo_path, *pr_number).await?;
         return threads::run(
             &repo_path,
             &pool,
@@ -73,24 +100,26 @@ async fn main() -> Result<()> {
         .await;
     }
 
-    let (pr_number_arg, repo_arg, force_fetch, commit_arg, interactive_mode, side_by_side) =
+    let (pr_number_arg, force_fetch, commit_arg, interactive_mode, side_by_side) =
         match &cli.command {
             Command::Diff {
                 pr_number,
                 fetch,
                 commit,
                 side_by_side,
-            } => (*pr_number, cli.repo, *fetch, commit, true, *side_by_side),
+            } => (*pr_number, *fetch, commit, true, *side_by_side),
             Command::Status {
                 pr_number,
                 fetch,
                 commit,
-            } => (*pr_number, cli.repo, *fetch, commit, false, false),
-            Command::Threads { .. } => unreachable!("handled above"),
+            } => (*pr_number, *fetch, commit, false, false),
+            Command::Threads { .. } | Command::Get { .. } | Command::Set { .. } => {
+                unreachable!("handled above")
+            }
         };
 
-    let (repo_path, owner, repo_name, pool, pr_number, stored_active) =
-        resolve_pr(&repo_arg, pr_number_arg).await?;
+    let (owner, repo_name, pool, pr_number, stored_active) =
+        resolve_pr(&repo_path, pr_number_arg).await?;
 
     let switching_pr = stored_active
         .as_ref()
