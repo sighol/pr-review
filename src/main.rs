@@ -86,6 +86,7 @@ async fn main() -> Result<()> {
     if let Command::Threads {
         pr_number,
         side_by_side,
+        fetch: _,
     } = &cli.command
     {
         let (owner, repo_name, pool, pr_number, _) = resolve_pr(&repo_path, *pr_number).await?;
