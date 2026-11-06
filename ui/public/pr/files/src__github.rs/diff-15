@@ -1,0 +1,47 @@
+diff --git a/src/github.rs b/src/github.rs
+index c0d25e0..257563d 100644
+--- a/src/github.rs
++++ b/src/github.rs
+@@ -74,13 +74,14 @@ pub struct ReviewComment {
+     pub original_commit_oid: Option<String>,
+ }
+ 
+-/// An inline code-review comment thread, with GitHub's own resolved flag
+-/// intentionally omitted: this tool tracks its own, separate resolution
+-/// state locally (see `db::thread_resolutions`).
++/// An inline code-review comment thread. `is_resolved` is GitHub's own
++/// resolved flag, separate from this tool's local resolution state (see
++/// `db::thread_resolutions`).
+ pub struct ReviewThread {
+     pub id: String,
+     pub path: String,
+     pub line: Option<i64>,
++    pub is_resolved: bool,
+     /// Chronological order, oldest first. Always non-empty.
+     pub comments: Vec<ReviewComment>,
+ }
+@@ -127,6 +128,8 @@ struct ReviewThreadNode {
+     id: String,
+     path: String,
+     line: Option<i64>,
++    #[serde(rename = "isResolved")]
++    is_resolved: bool,
+     comments: CommentsConnection,
+ }
+ 
+@@ -169,6 +172,7 @@ query($owner: String!, $repo: String!, $number: Int!, $after: String) {
+           id
+           path
+           line
++          isResolved
+           comments(first: 100) {
+             nodes {
+               id
+@@ -256,6 +260,7 @@ pub async fn fetch_review_threads(
+                 id: node.id,
+                 path: node.path,
+                 line: node.line,
++                is_resolved: node.is_resolved,
+                 comments,
+             });
+         }

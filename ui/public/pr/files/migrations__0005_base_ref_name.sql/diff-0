@@ -1,0 +1,7 @@
+diff --git a/migrations/0005_base_ref_name.sql b/migrations/0005_base_ref_name.sql
+new file mode 100644
+index 0000000..e9f293a
+--- /dev/null
++++ b/migrations/0005_base_ref_name.sql
+@@ -0,0 +1 @@
++ALTER TABLE active_pr RENAME COLUMN base_oid TO base_ref_name;

@@ -1,0 +1,78 @@
+diff --git a/src/threads.rs b/src/threads.rs
+index c7f088e..303a5c5 100644
+--- a/src/threads.rs
++++ b/src/threads.rs
+@@ -28,6 +28,9 @@ struct Discussion {
+     diff_hunk: Option<String>,
+     /// The commit the discussion's diff hunk is anchored to.
+     commit_oid: Option<String>,
++    /// GitHub's own resolved flag; `None` for the top-level conversation,
++    /// which has no such concept.
++    github_resolved: Option<bool>,
+     comments: Vec<ReviewComment>,
+ }
+ 
+@@ -89,6 +92,7 @@ pub async fn run(
+                 .comments
+                 .first()
+                 .and_then(|c| c.original_commit_oid.clone()),
++            github_resolved: Some(t.is_resolved),
+             comments: t.comments,
+         })
+         .collect();
+@@ -99,6 +103,7 @@ pub async fn run(
+             line: None,
+             diff_hunk: None,
+             commit_oid: None,
++            github_resolved: None,
+             comments: conversation_comments,
+         });
+     }
+@@ -148,18 +153,36 @@ pub async fn run(
+             None => rendered.push_str(&skin.term_text("## Conversation\n").to_string()),
+         }
+ 
++        let resolved_commit = resolutions.get(&discussion.id);
++
+         let mut markdown = String::new();
+         for comment in &discussion.comments {
+             markdown.push_str(&format!(
+-                "**{}** *{}*\n\n{}\n\n---\n\n",
+-                comment.author, comment.created_at, comment.body
++                "**{}** *{}* {}\n\n{}\n\n---\n\n",
++                comment.author,
++                comment.created_at,
++                hyperlink(&comment.url, "\u{1F517}"),
++                comment.body
+             ));
++            if let Some(resolved) = resolved_commit
++                && resolved == &comment.id
++            {
++                markdown.push_str("\n**\x1b[34m--- NEW COMMENTS ---\x1b[0m **\n\n")
++            }
+         }
+         rendered.push_str(&skin.term_text(&markdown).to_string());
+ 
+         let _ = execute!(io::stdout(), Clear(ClearType::All), MoveTo(0, 0));
+         page(&rendered).await?;
+         println!();
++        if let Some(github_resolved) = discussion.github_resolved {
++            let status = if github_resolved {
++                "\x1b[32mresolved\x1b[0m"
++            } else {
++                "\x1b[33munresolved\x1b[0m"
++            };
++            println!("GitHub status: {status}");
++        }
+         print!(
+             "Resolve discussion {discussion_index}/{}? (y/n): ",
+             unresolved.len()
+@@ -167,7 +190,7 @@ pub async fn run(
+         io::stdout().flush()?;
+ 
+         match read_key().unwrap_or(KeyCode::Enter) {
+-            KeyCode::Char('q') | KeyCode::Char('c') => return Ok(()),
++            KeyCode::Char('q') => return Ok(()),
+             KeyCode::Char('y') => {
+                 db::save_thread_resolution(
+                     pool,

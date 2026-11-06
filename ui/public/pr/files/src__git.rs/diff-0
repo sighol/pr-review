@@ -1,0 +1,45 @@
+diff --git a/src/git.rs b/src/git.rs
+index d21f421..f1472e4 100644
+--- a/src/git.rs
++++ b/src/git.rs
+@@ -27,12 +27,8 @@ pub async fn fetch_origin(repo_path: &Path) -> Result<()> {
+ 
+ /// Errors out with a helpful message if `base_oid`/`head_oid` aren't present
+ /// locally after `fetch_origin` (e.g. the PR's branch lives on a fork).
+-pub async fn ensure_commits_available(
+-    repo_path: &Path,
+-    base_oid: &str,
+-    head_oid: &str,
+-) -> Result<()> {
+-    for oid in [base_oid, head_oid] {
++pub async fn ensure_commits_available(repo_path: &Path, oids: &[&str]) -> Result<()> {
++    for oid in oids {
+         if !commit_exists(repo_path, oid).await? {
+             bail!(
+                 "commit {oid} was not found locally after `git fetch origin`. \
+@@ -344,6 +340,25 @@ pub async fn plain_diff(
+     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+ }
+ 
++pub async fn merge_base(repo_path: &Path, ref_a: &str, ref_b: &str) -> Result<String> {
++    let output = Command::new("git")
++        .arg("-C")
++        .arg(repo_path)
++        .arg("merge-base")
++        .arg(ref_a)
++        .arg(ref_b)
++        .output()
++        .await
++        .context("Failed to run git merge-base")?;
++    if !output.status.success() {
++        bail!(
++            "git merge-base failed: {}",
++            String::from_utf8_lossy(&output.stderr)
++        );
++    }
++    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
++}
++
+ #[cfg(test)]
+ mod tests {
+     use super::*;

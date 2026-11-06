@@ -15,12 +15,15 @@ import {
 } from "../lib/diff";
 import { tokenize } from "../lib/highlight";
 import type { FakeThread } from "../lib/threads";
-import { useStore, type Draft, type FileData } from "../store";
+import { useStore, type Draft, type FileData, type FileVersion } from "../store";
 import { CommentBox } from "./CommentBox";
 import { ThreadBox } from "./ThreadBox";
 
 interface Props {
   file: FileData;
+  version: FileVersion;
+  /** Diffing from an approved commit, not the PR base: old-side line numbers aren't the base's. */
+  partial: boolean;
   wholeFile: boolean;
 }
 
@@ -32,9 +35,10 @@ interface Selection {
   hi: number;
 }
 
-export function DiffView({ file, wholeFile }: Props) {
+export function DiffView({ file, version, partial, wholeFile }: Props) {
   const { threads, drafts, jump, clearJump, createDraft: storeCreateDraft } = useStore();
-  const { oldText, newText, diffText, path } = file;
+  const { newText, path } = file;
+  const { oldText, diffText } = version;
   const oldLines = useMemo(() => textToLines(oldText), [oldText]);
   const newLines = useMemo(() => textToLines(newText), [newText]);
   const hunks = useMemo(() => parseUnifiedDiff(diffText), [diffText]);
@@ -165,22 +169,22 @@ export function DiffView({ file, wholeFile }: Props) {
   const threadsByRow = useMemo(() => {
     const m = new Map<number, FakeThread[]>();
     for (const t of threads) {
-      if (t.file !== file.name) continue;
+      if (t.file !== file.name || (partial && t.side === "old")) continue;
       const ri = rowIndexByLine.get(`${t.side}:${t.line}`);
       if (ri !== undefined) m.set(ri, [...(m.get(ri) ?? []), t]);
     }
     return m;
-  }, [threads, file.name, rowIndexByLine]);
+  }, [threads, file.name, partial, rowIndexByLine]);
 
   const draftsByRow = useMemo(() => {
     const m = new Map<number, Draft[]>();
     for (const d of drafts.values()) {
-      if (d.file !== file.name) continue;
+      if (d.file !== file.name || (partial && d.range.side === "old")) continue;
       const ri = rowIndexByLine.get(`${d.range.side}:${d.range.end}`);
       if (ri !== undefined) m.set(ri, [...(m.get(ri) ?? []), d]);
     }
     return m;
-  }, [drafts, file.name, rowIndexByLine]);
+  }, [drafts, file.name, partial, rowIndexByLine]);
 
   return (
     <div className="diff" ref={containerRef} onPointerDown={onCodeDown}>
@@ -197,6 +201,7 @@ export function DiffView({ file, wholeFile }: Props) {
                 oldTokens={oldTokens}
                 newTokens={newTokens}
                 selectedSide={inSel}
+                leftEnabled={!partial}
                 onGutterDown={onGutterDown}
               />
             )}
@@ -233,14 +238,15 @@ interface LineRowProps {
   oldTokens: Tokens;
   newTokens: Tokens;
   selectedSide: Side | null;
+  leftEnabled: boolean;
   onGutterDown: (e: React.PointerEvent, side: Side, ri: number) => void;
 }
 
-const LineRow = memo(function LineRow({ row, ri, oldTokens, newTokens, selectedSide, onGutterDown }: LineRowProps) {
+const LineRow = memo(function LineRow({ row, ri, oldTokens, newTokens, selectedSide, leftEnabled, onGutterDown }: LineRowProps) {
   return (
     <div className="row" data-ri={ri}>
-      <Pane cell={row.left} side="old" ri={ri} tokens={oldTokens} selected={selectedSide === "old"} onGutterDown={onGutterDown} />
-      <Pane cell={row.right} side="new" ri={ri} tokens={newTokens} selected={selectedSide === "new"} onGutterDown={onGutterDown} />
+      <Pane cell={row.left} side="old" ri={ri} tokens={oldTokens} selected={selectedSide === "old"} enabled={leftEnabled} onGutterDown={onGutterDown} />
+      <Pane cell={row.right} side="new" ri={ri} tokens={newTokens} selected={selectedSide === "new"} enabled onGutterDown={onGutterDown} />
     </div>
   );
 });
@@ -251,17 +257,19 @@ interface PaneProps {
   ri: number;
   tokens: Tokens;
   selected: boolean;
+  enabled: boolean;
   onGutterDown: (e: React.PointerEvent, side: Side, ri: number) => void;
 }
 
-function Pane({ cell, side, ri, tokens, selected, onGutterDown }: PaneProps) {
-  const changed = isChanged(cell);
+function Pane({ cell, side, ri, tokens, selected, enabled, onGutterDown }: PaneProps) {
+  const changed = isChanged(cell) && enabled;
   const kind = cell ? cell.kind : "empty";
   const cls = `${side} ${kind}${selected && cell ? " selected" : ""}`;
   return (
     <>
       <div
         className={`gutter ${cls}${changed ? " clickable" : ""}`}
+        title={!enabled && isChanged(cell) ? "Left-side comments need the full PR diff" : undefined}
         onPointerDown={changed ? (e) => onGutterDown(e, side, ri) : undefined}
         onMouseDown={changed ? (e) => e.preventDefault() : undefined}
       >

@@ -1,18 +1,46 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { approveThrough } from "./lib/approval";
 import type { LineRange, Side } from "./lib/diff";
 import { parseLine, parseRoute, routeUrl, type Route, type Tab } from "./lib/route";
 import { ALL_THREADS, lastCommentId, type FakeThread, type Resolution } from "./lib/threads";
 
 export type { Tab } from "./lib/route";
 
-export interface FileData {
-  name: string;
-  label: string;
-  path: string;
+export interface Commit {
+  n: number;
+  oid: string;
+  short: string;
+  subject: string;
+}
+
+/** The old text and diff when diffing from commit `k` (0 is the PR base) to the file's latest commit. */
+export interface FileVersion {
   oldText: string;
-  newText: string;
   diffText: string;
 }
+
+export interface FileData {
+  /** Same as `path`; the key used in URLs and drafts. */
+  name: string;
+  path: string;
+  added: number;
+  removed: number;
+  /** Commit numbers (1-based) that touched this file. */
+  changedBy: number[];
+  /** The file at its latest commit. */
+  newText: string;
+  /** Keyed by start commit k. Key 0 is the full PR diff. */
+  versions: ReadonlyMap<number, FileVersion>;
+}
+
+/** Seed approvals for the prototype: file path -> approved through this commit. */
+const SEED_APPROVED_THROUGH: Record<string, number> = {
+  "src/cli.rs": 17,
+  "src/main.rs": 11,
+  "src/threads.rs": 7,
+  "src/github.rs": 7,
+  "src/interactive.rs": 9,
+};
 
 export interface Draft {
   key: string;
@@ -35,7 +63,13 @@ export const draftKey = (file: string, r: LineRange) => `${file}|${r.side}:${r.s
 interface Store {
   files: FileData[];
   fileByName: ReadonlyMap<string, FileData>;
+  commits: Commit[];
   threads: FakeThread[];
+
+  /** File path -> approved commit numbers. */
+  approvals: ReadonlyMap<string, ReadonlySet<number>>;
+  approveFile: (file: FileData) => void;
+  unapproveFile: (file: FileData) => void;
 
   tab: Tab;
   setTab: (t: Tab) => void;
@@ -83,7 +117,15 @@ const currentRoute = () => parseRoute(location.pathname, location.search);
 
 const threadOf = (r: Route) => (r.thread ? ALL_THREADS.find((t) => t.id === r.thread && t.file) : undefined);
 
-export function StoreProvider({ files, children }: { files: FileData[]; children: ReactNode }) {
+export function StoreProvider({
+  files,
+  commits,
+  children,
+}: {
+  files: FileData[];
+  commits: Commit[];
+  children: ReactNode;
+}) {
   const fileNames = useMemo(() => new Set(files.map((f) => f.name)), [files]);
   const validFile = useCallback(
     (name: string | undefined, fallback: string) => (name && fileNames.has(name) ? name : fallback),
@@ -166,6 +208,27 @@ export function StoreProvider({ files, children }: { files: FileData[]; children
       ),
   );
   const [reviewBody, setReviewBody] = useState("");
+  const [approvals, setApprovals] = useState<ReadonlyMap<string, ReadonlySet<number>>>(
+    () =>
+      new Map(
+        files.flatMap((f) => {
+          const through = SEED_APPROVED_THROUGH[f.path];
+          return through ? [[f.path, approveThrough(f.changedBy, through)] as const] : [];
+        }),
+      ),
+  );
+
+  const approveFile = useCallback((file: FileData) => {
+    setApprovals((prev) => new Map(prev).set(file.path, approveThrough(file.changedBy)));
+  }, []);
+
+  const unapproveFile = useCallback((file: FileData) => {
+    setApprovals((prev) => {
+      const next = new Map(prev);
+      next.delete(file.path);
+      return next;
+    });
+  }, []);
 
   const createDraft = useCallback((file: string, range: LineRange) => {
     const key = draftKey(file, range);
@@ -212,7 +275,11 @@ export function StoreProvider({ files, children }: { files: FileData[]; children
     () => ({
       files,
       fileByName,
+      commits,
       threads: ALL_THREADS,
+      approvals,
+      approveFile,
+      unapproveFile,
       tab,
       setTab,
       currentFile,
@@ -236,6 +303,10 @@ export function StoreProvider({ files, children }: { files: FileData[]; children
     [
       files,
       fileByName,
+      commits,
+      approvals,
+      approveFile,
+      unapproveFile,
       tab,
       setTab,
       currentFile,

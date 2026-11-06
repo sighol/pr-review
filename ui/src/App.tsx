@@ -1,31 +1,49 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { routeUrl } from "./lib/route";
 import { PR, isResolved, newCount } from "./lib/threads";
-import { StoreProvider, useStore, type FileData, type Tab } from "./store";
+import { StoreProvider, useStore, type Commit, type FileData, type Tab } from "./store";
 import { DiffTab } from "./tabs/DiffTab";
 import { ReviewTab, useReviewPayload } from "./tabs/ReviewTab";
 import { SummaryTab } from "./tabs/SummaryTab";
 
-interface ManifestEntry {
-  name: string;
-  label: string;
-  path: string;
+interface Manifest {
+  commits: Commit[];
+  files: { path: string; dir: string; added: number; removed: number; changedBy: number[]; from: number[] }[];
+}
+
+interface Loaded {
+  files: FileData[];
+  commits: Commit[];
 }
 
 const fetchText = (url: string) => fetch(url).then((r) => r.text());
 
-async function loadAll(): Promise<FileData[]> {
-  const manifest: ManifestEntry[] = await fetch("/fixtures/manifest.json").then((r) => r.json());
-  return Promise.all(
-    manifest.map(async (m) => {
-      const [oldText, newText, diffText] = await Promise.all([
-        fetchText(`/fixtures/${m.name}/old`),
-        fetchText(`/fixtures/${m.name}/new`),
-        fetchText(`/fixtures/${m.name}/diff`),
+async function loadAll(): Promise<Loaded> {
+  const manifest: Manifest = await fetch("/pr/manifest.json").then((r) => r.json());
+  const files = await Promise.all(
+    manifest.files.map(async (f): Promise<FileData> => {
+      const dir = `/pr/files/${f.dir}`;
+      const [newText, versions] = await Promise.all([
+        fetchText(`${dir}/new`),
+        Promise.all(
+          f.from.map(async (k) => {
+            const [oldText, diffText] = await Promise.all([fetchText(`${dir}/old-${k}`), fetchText(`${dir}/diff-${k}`)]);
+            return [k, { oldText, diffText }] as const;
+          }),
+        ),
       ]);
-      return { ...m, oldText, newText, diffText };
+      return {
+        name: f.path,
+        path: f.path,
+        added: f.added,
+        removed: f.removed,
+        changedBy: f.changedBy,
+        newText,
+        versions: new Map(versions),
+      };
     }),
   );
+  return { files, commits: manifest.commits };
 }
 
 function Panel({ id, children }: { id: Tab; children: ReactNode }) {
@@ -82,15 +100,15 @@ function Header() {
 }
 
 export function App() {
-  const [files, setFiles] = useState<FileData[] | null>(null);
+  const [loaded, setLoaded] = useState<Loaded | null>(null);
   useEffect(() => {
-    loadAll().then(setFiles);
+    loadAll().then(setLoaded);
   }, []);
 
-  if (!files) return <div className="loading">Loading…</div>;
+  if (!loaded) return <div className="loading">Loading…</div>;
 
   return (
-    <StoreProvider files={files}>
+    <StoreProvider files={loaded.files} commits={loaded.commits}>
       <div className="app">
         <Header />
         <div className="panels">

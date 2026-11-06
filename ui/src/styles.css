@@ -39,8 +39,8 @@ textarea {
   top: 0;
   z-index: 2;
   display: flex;
-  align-items: center;
-  gap: 12px;
+  flex-direction: column;
+  gap: 6px;
   padding: 8px 12px;
   background: var(--bg-subtle);
   border-bottom: 1px solid var(--border);
@@ -55,15 +55,98 @@ textarea {
   cursor: pointer;
 }
 
-.toolbar .path {
-  font-family: var(--mono);
-  color: var(--muted);
+.toolbar-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
-
+.toolbar-row .spacer {
+  flex: 1;
+}
 .toolbar .hint {
-  margin-left: auto;
   color: var(--muted);
   font-size: 12px;
+}
+.range-banner {
+  color: var(--muted);
+  font-size: 13px;
+}
+.range-banner.partial {
+  color: #d29922;
+}
+.action.approved {
+  background: transparent;
+  border-color: #2ea043;
+  color: #3fb950;
+}
+
+/* ---- file matrix ---- */
+.matrix {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow-x: auto;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.mx-row {
+  display: grid;
+  grid-template-columns: 22px minmax(200px, 1fr) 76px repeat(var(--n), 22px);
+  align-items: center;
+  width: 100%;
+  min-width: max-content;
+  padding: 0 8px;
+  background: var(--bg);
+  color: var(--fg);
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  font: inherit;
+  line-height: 24px;
+  cursor: pointer;
+}
+.mx-row:last-child {
+  border-bottom: 0;
+}
+.mx-row:not(.mx-head):hover {
+  background: var(--bg-subtle);
+}
+.mx-head {
+  background: var(--bg-subtle);
+  color: var(--muted);
+  font-size: 11px;
+  cursor: default;
+}
+.mx-file {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.mx-dir {
+  color: var(--muted);
+}
+.mx-state.done {
+  color: #3fb950;
+  font-weight: 700;
+}
+.mx-stat .add {
+  color: #3fb950;
+}
+.mx-stat .del {
+  color: #f85149;
+}
+.mx-cell {
+  text-align: center;
+}
+.mx-cell.span {
+  background: rgba(46, 160, 67, 0.18);
+}
+.mx-cell.approved {
+  color: #3fb950;
+  font-weight: 700;
+}
+.mx-cell.unapproved {
+  color: #d29922;
 }
 
 .loading {

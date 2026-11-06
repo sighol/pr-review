@@ -1,0 +1,222 @@
+diff --git a/src/main.rs b/src/main.rs
+index 63a37fc..172c5c0 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -9,9 +9,9 @@ mod pager;
+ mod threads;
+ mod types;
+ 
+-use std::path::PathBuf;
++use std::path::{Path, PathBuf};
+ 
+-use anyhow::{Context, Result};
++use anyhow::{Context, Result, bail};
+ use clap::Parser;
+ use sqlx::SqlitePool;
+ 
+@@ -21,21 +21,9 @@ use cli::{Cli, Command};
+ /// active — either from `pr_number_arg` or (if omitted) the last-reviewed PR
+ /// for this repo. Shared by every subcommand.
+ async fn resolve_pr(
+-    repo_arg: &Option<PathBuf>,
++    repo_path: &Path,
+     pr_number_arg: Option<u64>,
+-) -> Result<(
+-    PathBuf,
+-    String,
+-    String,
+-    SqlitePool,
+-    u64,
+-    Option<db::ActivePr>,
+-)> {
+-    let repo_path = match repo_arg {
+-        Some(p) => p.clone(),
+-        None => std::env::current_dir()?,
+-    };
+-
++) -> Result<(String, String, SqlitePool, u64, Option<db::ActivePr>)> {
+     let (owner, repo_name) = git::origin_owner_repo(&repo_path).await?;
+ 
+     let pool = db::open(&owner, &repo_name).await?;
+@@ -48,21 +36,70 @@ async fn resolve_pr(
+              run e.g. `pr-review sync 123`",
+         )?;
+ 
+-    Ok((repo_path, owner, repo_name, pool, pr_number, stored_active))
++    Ok((owner, repo_name, pool, pr_number, stored_active))
++}
++
++fn traverse_up_to_git_repo(path: &Path) -> PathBuf {
++    if path.join(".git").is_dir() || path.join(".jj").is_dir() {
++        return path.to_owned();
++    }
++    match path.parent() {
++        None => panic!("Could not find git directory"),
++        Some(parent) => traverse_up_to_git_repo(parent),
++    }
+ }
+ 
+ #[tokio::main]
+ async fn main() -> Result<()> {
+     let cli = Cli::parse();
+ 
++    let repo_path = match cli.repo {
++        Some(p) => p.clone(),
++        None => traverse_up_to_git_repo(&std::env::current_dir()?),
++    };
++
++    if let Command::Get = &cli.command {
++        let (owner, repo_name) = git::origin_owner_repo(&repo_path).await?;
++        let pool = db::open(&owner, &repo_name).await?;
++        return match db::load_active_pr(&pool).await? {
++            Some(active) => {
++                println!("{}", active.pr_number);
++                Ok(())
++            }
++            None => bail!("no active PR set for this repo; run e.g. `pr-review set 123`"),
++        };
++    }
++
++    if let Command::Set { pr_number } = &cli.command {
++        let (owner, repo_name) = git::origin_owner_repo(&repo_path).await?;
++        let pool = db::open(&owner, &repo_name).await?;
++        let pr_number = *pr_number;
++
++        let pr_refs = github::fetch_pr_refs(&owner, &repo_name, pr_number).await?;
++        eprintln!("Fetching origin (branch {})...", pr_refs.head_ref_name);
++        git::fetch_origin(&repo_path).await?;
++        git::ensure_commits_available(&repo_path, &[&pr_refs.base_ref_name, &pr_refs.head_oid])
++            .await?;
++        db::save_active_pr(
++            &pool,
++            pr_number,
++            &pr_refs.base_ref_name,
++            &pr_refs.head_ref_name,
++            &pr_refs.title,
++        )
++        .await?;
++
++        eprintln!("Set active PR to #{pr_number}");
++        return Ok(());
++    }
++
+     if let Command::Threads {
+         pr_number,
+-        repo,
+         side_by_side,
++        fetch: _,
+     } = &cli.command
+     {
+-        let (repo_path, owner, repo_name, pool, pr_number, _) =
+-            resolve_pr(repo, *pr_number).await?;
++        let (owner, repo_name, pool, pr_number, _) = resolve_pr(&repo_path, *pr_number).await?;
+         return threads::run(
+             &repo_path,
+             &pool,
+@@ -74,26 +111,26 @@ async fn main() -> Result<()> {
+         .await;
+     }
+ 
+-    let (pr_number_arg, repo_arg, force_fetch, commit_arg, interactive_mode, side_by_side) =
++    let (pr_number_arg, force_fetch, commit_arg, interactive_mode, side_by_side) =
+         match &cli.command {
+             Command::Diff {
+                 pr_number,
+-                repo,
+                 fetch,
+                 commit,
+                 side_by_side,
+-            } => (*pr_number, repo, *fetch, commit, true, *side_by_side),
++            } => (*pr_number, *fetch, commit, true, *side_by_side),
+             Command::Status {
+                 pr_number,
+-                repo,
+                 fetch,
+                 commit,
+-            } => (*pr_number, repo, *fetch, commit, false, false),
+-            Command::Threads { .. } => unreachable!("handled above"),
++            } => (*pr_number, *fetch, commit, false, false),
++            Command::Threads { .. } | Command::Get { .. } | Command::Set { .. } => {
++                unreachable!("handled above")
++            }
+         };
+ 
+-    let (repo_path, owner, repo_name, pool, pr_number, stored_active) =
+-        resolve_pr(repo_arg, pr_number_arg).await?;
++    let (owner, repo_name, pool, pr_number, stored_active) =
++        resolve_pr(&repo_path, pr_number_arg).await?;
+ 
+     let switching_pr = stored_active
+         .as_ref()
+@@ -101,7 +138,7 @@ async fn main() -> Result<()> {
+         .unwrap_or(true);
+     let need_fetch = force_fetch || switching_pr;
+ 
+-    let (base_ref_name, mut head_oid, _head_ref_name) = if need_fetch {
++    let (base_ref_name, mut head_oid, _head_ref_name, pr_title) = if need_fetch {
+         eprintln!("Fetching PR #{pr_number} from GitHub...");
+         let pr_refs = github::fetch_pr_refs(&owner, &repo_name, pr_number).await?;
+         eprintln!("Fetching origin (branch {})...", pr_refs.head_ref_name);
+@@ -112,18 +149,26 @@ async fn main() -> Result<()> {
+             pr_number,
+             &pr_refs.base_ref_name,
+             &pr_refs.head_ref_name,
++            &pr_refs.title,
+         )
+         .await?;
+         (
+             pr_refs.base_ref_name,
+             pr_refs.head_oid,
+             pr_refs.head_ref_name,
++            pr_refs.title,
+         )
+     } else {
+         let active = stored_active.expect("!need_fetch implies stored_active matched pr_number");
+         let head_oid = git::resolve_branch_oid(&repo_path, &active.head_ref_name).await?;
+-        (active.base_ref_name, head_oid, active.head_ref_name)
++        (
++            active.base_ref_name,
++            head_oid,
++            active.head_ref_name,
++            active.title,
++        )
+     };
++    let pr_url = format!("https://github.com/{owner}/{repo_name}/pull/{pr_number}");
+ 
+     if let Some(commit) = commit_arg {
+         let resolved = git::resolve_commit(&repo_path, commit).await?;
+@@ -142,13 +187,23 @@ async fn main() -> Result<()> {
+     let approvals = db::load_approvals(&pool, pr_number).await?;
+ 
+     if !types::has_unapproved_changes(&files, &commits, &approvals) {
+-        print!("{}", grid::render_grid(&files, &commits, &approvals, None));
++        print!(
++            "{}",
++            grid::render_grid(
++                pr_number, &pr_title, &pr_url, &files, &commits, &approvals, None
++            )
++        );
+         println!("\n\u{2713} All files approved!");
+         return Ok(());
+     }
+ 
+     if !interactive_mode {
+-        print!("{}", grid::render_grid(&files, &commits, &approvals, None));
++        print!(
++            "{}",
++            grid::render_grid(
++                pr_number, &pr_title, &pr_url, &files, &commits, &approvals, None
++            )
++        );
+         return Ok(());
+     }
+ 
+@@ -156,6 +211,8 @@ async fn main() -> Result<()> {
+         &repo_path,
+         &pool,
+         pr_number,
++        &pr_title,
++        &pr_url,
+         &files,
+         &commits,
+         &base_oid,

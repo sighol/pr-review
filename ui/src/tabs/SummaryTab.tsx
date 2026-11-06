@@ -1,3 +1,4 @@
+import { FileMatrix } from "../components/FileMatrix";
 import { Markdown } from "../components/Markdown";
 import { ThreadBox } from "../components/ThreadBox";
 import { CONVERSATION_ID, PR, isResolved, newCount, sortThreads } from "../lib/threads";
@@ -29,6 +30,9 @@ export function SummaryTab() {
       <section className="card">
         <Markdown text={PR.body} />
       </section>
+
+      <h2>Files</h2>
+      <FileMatrix />
 
       <h2>Discussions on code</h2>
       <p className="muted">
