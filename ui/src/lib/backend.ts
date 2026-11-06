@@ -60,7 +60,16 @@ export function fileDiff(file: FileKey, from: number, to: number): Promise<strin
 /** Review state saved in the database for this PR (Tauri only). */
 export interface SavedState {
   approvals: { filePath: string; commitOid: string }[];
-  drafts: { draftKey: string; filePath: string; side: "old" | "new"; startLine: number; endLine: number; body: string; headOid: string }[];
+  drafts: {
+    draftKey: string;
+    filePath: string;
+    side: "old" | "new";
+    startLine: number;
+    endLine: number;
+    body: string;
+    /** The file changed since the draft was written, so its line may be wrong. */
+    stale: boolean;
+  }[];
   replies: { threadId: string; body: string }[];
   resolutions: { threadId: string; resolvedThrough: string | null; reopened: boolean }[];
   reviewBody: string;
@@ -115,7 +124,34 @@ if (typeof window !== "undefined") {
   window.addEventListener("pagehide", flushSaves);
 }
 
+export type ReviewEvent = "APPROVE" | "COMMENT" | "REQUEST_CHANGES";
+
+export interface SubmitResult {
+  reviewUrl: string;
+  /** The review went through but the conversation comment did not. */
+  conversationError: string | null;
+  /** The discussion after the review; null if refetching it failed. */
+  threads: ThreadJson[] | null;
+  refreshError: string | null;
+}
+
+/**
+ * Sends the saved review to GitHub. Resolves to null in a browser, where nothing is sent.
+ * Rejects with GitHub's or git's message when the submit fails; nothing is posted then.
+ */
+export function submitReview(event: ReviewEvent): Promise<SubmitResult | null> {
+  if (!inTauri()) return Promise.resolve(null);
+  flushSaves(); // so the database has everything you typed
+  const run = queue.then(async () => {
+    const { invoke } = await import("@tauri-apps/api/core");
+    return invoke<SubmitResult>("submit_review", { event });
+  });
+  queue = run.catch(() => undefined);
+  return run;
+}
+
 export const persist = {
+  acknowledgeDraft: (draftKey: string) => save("acknowledge_draft", { draftKey }),
   fileApprovals: (filePath: string, commitOids: string[]) => save("set_file_approvals", { filePath, commitOids }),
   /** Typing is saved after a short pause. */
   draft: (d: { draftKey: string; filePath: string; side: "old" | "new"; startLine: number; endLine: number; body: string }) =>

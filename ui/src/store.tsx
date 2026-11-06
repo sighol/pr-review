@@ -12,8 +12,14 @@ import {
   type CommitRange,
 } from "./lib/range";
 import { parseLine, parseRoute, routeUrl, type Route, type Tab } from "./lib/route";
-import { persist, type SavedState } from "./lib/backend";
-import { lastCommentId, type FakeThread, type PrInfo, type Resolution } from "./lib/threads";
+import {
+  persist,
+  submitReview as sendReview,
+  type ReviewEvent,
+  type SavedState,
+  type SubmitResult,
+} from "./lib/backend";
+import { CONVERSATION_ID, lastCommentId, threadFromJson, type FakeThread, type PrInfo, type Resolution } from "./lib/threads";
 
 export type { Tab } from "./lib/route";
 
@@ -52,6 +58,8 @@ export interface Draft {
   file: string;
   range: LineRange;
   text: string;
+  /** The file changed since this was written, so its line may be wrong; blocks submitting until acknowledged. */
+  stale: boolean;
 }
 
 export interface JumpTarget {
@@ -101,6 +109,13 @@ interface Store {
   createDraft: (file: string, range: LineRange) => void;
   patchDraft: (key: string, text: string) => void;
   removeDraft: (key: string) => void;
+  /** "The line is still right": clears a draft's stale flag. */
+  acknowledgeDraft: (key: string) => void;
+  /**
+   * Sends the saved review to GitHub and, on success, clears drafts, replies and the review body
+   * and swaps in the refreshed threads. Resolves to null in a browser, where nothing is sent.
+   */
+  submitReview: (event: ReviewEvent) => Promise<SubmitResult | null>;
 
   /** Reply drafts by thread id. "" means an open but empty box. */
   replies: ReadonlyMap<string, string>;
@@ -151,7 +166,7 @@ function computeRange(
 export function StoreProvider({
   files,
   commits,
-  threads,
+  threads: initialThreads,
   pr,
   saved,
   children,
@@ -165,6 +180,10 @@ export function StoreProvider({
   children: ReactNode;
 }) {
   const headN = commits.length;
+  // Threads are replaced after submitting a review; callbacks that never re-run read the ref.
+  const [threads, setThreads] = useState(initialThreads);
+  const threadsRef = useRef(threads);
+  threadsRef.current = threads;
   const fileNames = useMemo(() => new Set(files.map((f) => f.name)), [files]);
   const fileByName = useMemo(() => new Map(files.map((f) => [f.name, f])), [files]);
   const validFile = useCallback(
@@ -248,7 +267,7 @@ export function StoreProvider({
   const resolveJump = useCallback(
     (r: Route, file: string, tick: number): JumpTarget | null => {
       if (r.tab !== "diff") return null;
-      const thread = threadOf(threads, r);
+      const thread = threadOf(threadsRef.current, r);
       if (thread) {
         return { file: thread.file!, side: thread.side, line: thread.line ?? thread.originalLine, threadId: thread.id, tick };
       }
@@ -330,7 +349,13 @@ export function StoreProvider({
           .filter((d) => fileNames.has(d.filePath))
           .map((d): [string, Draft] => [
             d.draftKey,
-            { key: d.draftKey, file: d.filePath, range: { side: d.side, start: d.startLine, end: d.endLine }, text: d.body },
+            {
+              key: d.draftKey,
+              file: d.filePath,
+              range: { side: d.side, start: d.startLine, end: d.endLine },
+              text: d.body,
+              stale: d.stale,
+            },
           ]),
       ),
   );
@@ -385,7 +410,7 @@ export function StoreProvider({
 
   const createDraft = useCallback((file: string, range: LineRange) => {
     const key = draftKey(file, range);
-    setDrafts((prev) => (prev.has(key) ? prev : new Map(prev).set(key, { key, file, range, text: "" })));
+    setDrafts((prev) => (prev.has(key) ? prev : new Map(prev).set(key, { key, file, range, text: "", stale: false })));
     setFocus((f) => ({ key, tick: (f?.tick ?? 0) + 1 }));
   }, []);
 
@@ -415,6 +440,30 @@ export function StoreProvider({
       return next;
     });
     persist.deleteDraft(key);
+  }, []);
+
+  const acknowledgeDraft = useCallback((key: string) => {
+    setDrafts((prev) => {
+      const d = prev.get(key);
+      return d ? new Map(prev).set(key, { ...d, stale: false }) : prev;
+    });
+    persist.acknowledgeDraft(key);
+  }, []);
+
+  const submitReview = useCallback(async (event: ReviewEvent): Promise<SubmitResult | null> => {
+    const result = await sendReview(event);
+    if (!result) return null;
+    // The backend already cleared its copy; mirror that here without saving anything.
+    setDrafts(new Map());
+    setReviewBodyState("");
+    setReplies((prev) =>
+      result.conversationError ? new Map([...prev].filter(([id]) => id === CONVERSATION_ID)) : new Map(),
+    );
+    if (result.threads) {
+      const now = Date.now();
+      setThreads(result.threads.map((t) => threadFromJson(t, now)));
+    }
+    return result;
   }, []);
 
   const setReply = useCallback((threadId: string, text: string | null) => {
@@ -464,6 +513,8 @@ export function StoreProvider({
       createDraft,
       patchDraft,
       removeDraft,
+      acknowledgeDraft,
+      submitReview,
       replies,
       setReply,
       resolutions,
@@ -479,6 +530,8 @@ export function StoreProvider({
       files,
       fileByName,
       commits,
+      threads,
+      pr,
       approvals,
       approveFile,
       unapproveFile,
@@ -497,12 +550,15 @@ export function StoreProvider({
       createDraft,
       patchDraft,
       removeDraft,
+      acknowledgeDraft,
+      submitReview,
       replies,
       setReply,
       resolutions,
       resolveThread,
       reopenThread,
       reviewBody,
+      setReviewBody,
       jump,
       jumpTo,
       clearJump,

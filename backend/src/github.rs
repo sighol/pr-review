@@ -74,6 +74,39 @@ pub async fn pr_view(owner: &str, repo: &str, number: u64) -> Result<PrInfo> {
     parse_pr_view(&out.stdout)
 }
 
+/// Runs a GraphQL query or mutation through `gh api graphql`, sending the variables as JSON on
+/// stdin so nested inputs work. Returns the response's `data`.
+pub async fn graphql(query: &str, variables: serde_json::Value) -> Result<serde_json::Value> {
+    use std::process::Stdio;
+    use tokio::io::AsyncWriteExt;
+
+    let body = serde_json::json!({ "query": query, "variables": variables });
+    let mut child = Command::new("gh")
+        .args(["api", "graphql", "-H", "Content-Type: application/json", "--input", "-"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .context("failed to run `gh` (is the GitHub CLI installed?)")?;
+    let mut stdin = child.stdin.take().context("could not open gh's stdin")?;
+    stdin.write_all(body.to_string().as_bytes()).await?;
+    drop(stdin);
+    let out = child.wait_with_output().await?;
+    if !out.status.success() {
+        bail!("{}", String::from_utf8_lossy(&out.stderr).trim());
+    }
+    let response: serde_json::Value =
+        serde_json::from_slice(&out.stdout).context("unexpected output from `gh api graphql`")?;
+    if let Some(errors) = response.get("errors") {
+        let messages: Vec<&str> = errors
+            .as_array()
+            .map(|a| a.iter().filter_map(|e| e["message"].as_str()).collect())
+            .unwrap_or_default();
+        bail!("GitHub rejected the request: {}", messages.join("; "));
+    }
+    response.get("data").cloned().context("GitHub's response had no data")
+}
+
 /// One comment, in a review thread or in the PR conversation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RawComment {

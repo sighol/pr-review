@@ -35,6 +35,13 @@ pub struct Draft {
     /// Ignored on save (the database stamps its own PR head); set on load.
     #[serde(default)]
     pub head_oid: String,
+    /// Ignored on save like `head_oid`: the PR base the draft was written against.
+    #[serde(default)]
+    pub base_oid: String,
+    /// Not stored; filled in on load: the file changed since the draft was written.
+    #[serde(default)]
+    #[sqlx(default)]
+    pub stale: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, sqlx::FromRow)]
@@ -69,6 +76,7 @@ pub struct Db {
     pool: SqlitePool,
     key: PrKey,
     head_oid: String,
+    base_oid: String,
 }
 
 pub fn default_path() -> Result<PathBuf> {
@@ -77,8 +85,9 @@ pub fn default_path() -> Result<PathBuf> {
 }
 
 impl Db {
-    /// Opens (creating and migrating if needed) the database at `path`.
-    pub async fn open(path: &Path, key: PrKey, head_oid: String) -> Result<Db> {
+    /// Opens (creating and migrating if needed) the database at `path`. `head_oid` and
+    /// `base_oid` are the PR's current head and base, stamped on every draft saved.
+    pub async fn open(path: &Path, key: PrKey, head_oid: String, base_oid: String) -> Result<Db> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).with_context(|| format!("could not create {}", parent.display()))?;
         }
@@ -87,19 +96,23 @@ impl Db {
             .create_if_missing(true)
             .journal_mode(SqliteJournalMode::Wal)
             .foreign_keys(true);
-        Self::connect(options, key, head_oid)
+        Self::connect(options, key, head_oid, base_oid)
             .await
             .with_context(|| format!("could not open the database at {}", path.display()))
     }
 
-    pub async fn open_default(key: PrKey, head_oid: String) -> Result<Db> {
-        Self::open(&default_path()?, key, head_oid).await
+    pub async fn open_default(key: PrKey, head_oid: String, base_oid: String) -> Result<Db> {
+        Self::open(&default_path()?, key, head_oid, base_oid).await
     }
 
-    async fn connect(options: SqliteConnectOptions, key: PrKey, head_oid: String) -> Result<Db> {
+    async fn connect(options: SqliteConnectOptions, key: PrKey, head_oid: String, base_oid: String) -> Result<Db> {
         let pool = SqlitePoolOptions::new().max_connections(4).connect_with(options).await?;
         MIGRATOR.run(&pool).await?;
-        Ok(Db { pool, key, head_oid })
+        Ok(Db { pool, key, head_oid, base_oid })
+    }
+
+    pub fn key(&self) -> &PrKey {
+        &self.key
     }
 
     pub async fn load(&self) -> Result<SavedState> {
@@ -114,7 +127,7 @@ impl Db {
         .fetch_all(&self.pool)
         .await?;
         let drafts = sqlx::query_as(
-            "SELECT draft_key, file_path, side, start_line, end_line, body, head_oid FROM drafts
+            "SELECT draft_key, file_path, side, start_line, end_line, body, head_oid, base_oid FROM drafts
              WHERE owner = ?1 AND repo = ?2 AND pr_number = ?3 ORDER BY file_path, start_line, draft_key",
         )
         .bind(owner)
@@ -183,10 +196,11 @@ impl Db {
         }
         let (owner, repo, number) = self.pr();
         sqlx::query(
-            "INSERT INTO drafts (owner, repo, pr_number, draft_key, file_path, side, start_line, end_line, body, head_oid)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+            "INSERT INTO drafts (owner, repo, pr_number, draft_key, file_path, side, start_line, end_line, body, head_oid, base_oid)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
              ON CONFLICT (owner, repo, pr_number, draft_key) DO UPDATE SET
-                 body = excluded.body, head_oid = excluded.head_oid, updated_at = CURRENT_TIMESTAMP",
+                 body = excluded.body, head_oid = excluded.head_oid, base_oid = excluded.base_oid,
+                 updated_at = CURRENT_TIMESTAMP",
         )
         .bind(owner)
         .bind(repo)
@@ -198,8 +212,55 @@ impl Db {
         .bind(draft.end_line)
         .bind(&draft.body)
         .bind(&self.head_oid)
+        .bind(&self.base_oid)
         .execute(&self.pool)
         .await?;
+        Ok(())
+    }
+
+    /// Re-stamps a draft with the current head and base: "this line is still right".
+    pub async fn acknowledge_draft(&self, draft_key: &str) -> Result<()> {
+        let (owner, repo, number) = self.pr();
+        sqlx::query(
+            "UPDATE drafts SET head_oid = ?1, base_oid = ?2, updated_at = CURRENT_TIMESTAMP
+             WHERE owner = ?3 AND repo = ?4 AND pr_number = ?5 AND draft_key = ?6",
+        )
+        .bind(&self.head_oid)
+        .bind(&self.base_oid)
+        .bind(owner)
+        .bind(repo)
+        .bind(number)
+        .bind(draft_key)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Clears what a submitted review used up: every draft, the review body, and every reply
+    /// except the one for `keep_reply_thread` (a reply that failed to post).
+    pub async fn clear_submitted(&self, keep_reply_thread: Option<&str>) -> Result<()> {
+        let (owner, repo, number) = self.pr();
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("DELETE FROM drafts WHERE owner = ?1 AND repo = ?2 AND pr_number = ?3")
+            .bind(owner)
+            .bind(repo)
+            .bind(number)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM review_bodies WHERE owner = ?1 AND repo = ?2 AND pr_number = ?3")
+            .bind(owner)
+            .bind(repo)
+            .bind(number)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM replies WHERE owner = ?1 AND repo = ?2 AND pr_number = ?3 AND thread_id IS NOT ?4")
+            .bind(owner)
+            .bind(repo)
+            .bind(number)
+            .bind(keep_reply_thread)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
         Ok(())
     }
 
@@ -309,7 +370,7 @@ mod tests {
         // One connection: every connection to `:memory:` would be its own database.
         let pool = SqlitePoolOptions::new().max_connections(1).connect_with(options).await.unwrap();
         MIGRATOR.run(&pool).await.unwrap();
-        Db { pool, key: key(1), head_oid: "head1".into() }
+        Db { pool, key: key(1), head_oid: "head1".into(), base_oid: "base1".into() }
     }
 
     fn draft(key: &str, body: &str) -> Draft {
@@ -321,6 +382,8 @@ mod tests {
             end_line: 5,
             body: body.into(),
             head_oid: String::new(),
+            base_oid: String::new(),
+            stale: false,
         }
     }
 
@@ -352,12 +415,44 @@ mod tests {
         let drafts = db.load().await.unwrap().drafts;
         assert_eq!(drafts.len(), 2);
         assert_eq!(drafts[0].body, "edited");
-        assert_eq!(drafts[0].head_oid, "head1");
+        assert_eq!((drafts[0].head_oid.as_str(), drafts[0].base_oid.as_str()), ("head1", "base1"));
         assert_eq!((drafts[0].side.as_str(), drafts[0].start_line, drafts[0].end_line), ("new", 3, 5));
 
         db.save_draft(&draft("k1", "  \n")).await.unwrap();
         db.delete_draft("k2").await.unwrap();
         assert!(db.load().await.unwrap().drafts.is_empty());
+    }
+
+    #[tokio::test]
+    async fn acknowledging_a_draft_restamps_it_with_the_current_head_and_base() {
+        let mut db = memory_db().await;
+        db.save_draft(&draft("k", "text")).await.unwrap();
+        db.head_oid = "head2".into();
+        db.base_oid = "base2".into();
+        db.acknowledge_draft("k").await.unwrap();
+        let d = &db.load().await.unwrap().drafts[0];
+        assert_eq!((d.head_oid.as_str(), d.base_oid.as_str(), d.body.as_str()), ("head2", "base2", "text"));
+    }
+
+    #[tokio::test]
+    async fn clear_submitted_keeps_only_the_named_reply_and_the_rest_of_the_state() {
+        let db = memory_db().await;
+        db.save_draft(&draft("k", "text")).await.unwrap();
+        db.save_reply("t1", "reply 1").await.unwrap();
+        db.save_reply("conversation", "reply 2").await.unwrap();
+        db.set_review_body("LGTM").await.unwrap();
+        db.set_file_approvals("a.rs", &["c1".into()]).await.unwrap();
+        db.set_resolution("t1", Some("c9"), false).await.unwrap();
+
+        db.clear_submitted(Some("conversation")).await.unwrap();
+        let s = db.load().await.unwrap();
+        assert!(s.drafts.is_empty());
+        assert_eq!(s.review_body, "");
+        assert_eq!(s.replies, vec![Reply { thread_id: "conversation".into(), body: "reply 2".into() }]);
+        assert_eq!((s.approvals.len(), s.resolutions.len()), (1, 1));
+
+        db.clear_submitted(None).await.unwrap();
+        assert!(db.load().await.unwrap().replies.is_empty());
     }
 
     #[tokio::test]
@@ -404,18 +499,20 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let path = dir.join("nested").join("test.db");
 
-        let one = Db::open(&path, key(1), "h".into()).await.unwrap();
+        let one = Db::open(&path, key(1), "h".into(), "b".into()).await.unwrap();
         one.set_review_body("for PR 1").await.unwrap();
         one.set_file_approvals("a.rs", &["c1".into()]).await.unwrap();
 
-        let two = Db::open(&path, key(2), "h".into()).await.unwrap();
+        let two = Db::open(&path, key(2), "h".into(), "b".into()).await.unwrap();
         assert_eq!(two.load().await.unwrap(), SavedState::default());
         two.set_review_body("for PR 2").await.unwrap();
 
-        let other_repo = Db::open(&path, PrKey { repo: "gadgets".into(), ..key(1) }, "h".into()).await.unwrap();
+        let other_repo = Db::open(&path, PrKey { repo: "gadgets".into(), ..key(1) }, "h".into(), "b".into())
+            .await
+            .unwrap();
         assert_eq!(other_repo.load().await.unwrap(), SavedState::default());
 
-        let again = Db::open(&path, key(1), "h".into()).await.unwrap();
+        let again = Db::open(&path, key(1), "h".into(), "b".into()).await.unwrap();
         let s = again.load().await.unwrap();
         assert_eq!(s.review_body, "for PR 1");
         assert_eq!(s.approvals.len(), 1);

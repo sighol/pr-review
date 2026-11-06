@@ -2,7 +2,8 @@ use std::path::PathBuf;
 
 use pr_review_core::db::{Db, Draft, SavedState};
 use pr_review_core::manifest::Manifest;
-use pr_review_core::{git, pr};
+use pr_review_core::review::SubmitResult;
+use pr_review_core::{git, pr, review};
 use tauri::State;
 
 const USAGE: &str = "usage: pr-review <PR number>\n\nRun it inside a clone of the GitHub repository. Needs `git` and an authenticated `gh`.";
@@ -46,7 +47,22 @@ async fn file_text(state: State<'_, AppState>, oid: String, path: String) -> Res
 
 #[tauri::command]
 async fn saved_state(state: State<'_, AppState>) -> Result<SavedState, String> {
-    state.db.load().await.map_err(err)
+    review::load_saved(&state.db, &state.repo, &state.manifest.base, &state.manifest.head)
+        .await
+        .map_err(err)
+}
+
+#[tauri::command]
+async fn acknowledge_draft(state: State<'_, AppState>, draft_key: String) -> Result<(), String> {
+    state.db.acknowledge_draft(&draft_key).await.map_err(err)
+}
+
+#[tauri::command]
+async fn submit_review(state: State<'_, AppState>, event: String) -> Result<SubmitResult, String> {
+    let m = &state.manifest;
+    review::submit_saved(&state.db, &state.repo, &m.base, &m.head, &m.commits, &event)
+        .await
+        .map_err(err)
 }
 
 #[tauri::command]
@@ -109,7 +125,7 @@ pub fn run() {
 
     let (opened, db) = tauri::async_runtime::block_on(async {
         let opened = pr::open_pr(&cwd, number, |step| eprintln!("{step}...")).await?;
-        let db = Db::open_default(opened.key.clone(), opened.manifest.head.clone()).await?;
+        let db = Db::open_default(opened.key.clone(), opened.manifest.head.clone(), opened.manifest.base.clone()).await?;
         anyhow::Ok((opened, db))
     })
     .unwrap_or_else(|e| exit_with(&format!("error: {e:#}"), 1));
@@ -125,6 +141,8 @@ pub fn run() {
             file_text,
             file_diff,
             saved_state,
+            acknowledge_draft,
+            submit_review,
             set_file_approvals,
             save_draft,
             delete_draft,

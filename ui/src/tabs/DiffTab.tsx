@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { DiffView } from "../components/DiffView";
+import { DiscussionNav } from "../components/DiscussionNav";
 import { RangeBar } from "../components/RangeBar";
 import { isFullyApproved, latestCommit, nextUnapproved } from "../lib/approval";
 import { rangeKey, useRangeData } from "../lib/data";
@@ -67,6 +68,7 @@ export function DiffTab() {
               </option>
             ))}
           </select>
+          <DiscussionNav />
           <span className="spacer" />
           <button onClick={() => setWholeFile((w) => !w)}>{wholeFile ? "Show changed hunks" : "Show whole file"}</button>
         </div>

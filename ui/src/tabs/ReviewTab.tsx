@@ -1,14 +1,13 @@
 import { useMemo, useState } from "react";
 import { CommentBox, describeRange } from "../components/CommentBox";
 import { ThreadBox } from "../components/ThreadBox";
+import type { ReviewEvent as Event, SubmitResult } from "../lib/backend";
 import { CONVERSATION_ID, isResolved, newCount, type FakeThread } from "../lib/threads";
 import { useRangeData } from "../lib/data";
 import { snippetFor } from "../lib/snippet";
 import { isRealDraft, pendingReplies, threadLine, useStore, type Draft, type FileData } from "../store";
 
 const MAX_SNIPPET = 10;
-
-type Event = "APPROVE" | "COMMENT" | "REQUEST_CHANGES";
 
 function Snippet({ file, draft }: { file: FileData; draft: Draft }) {
   const { commits } = useStore();
@@ -60,10 +59,16 @@ export function useReviewPayload() {
 }
 
 export function ReviewTab() {
-  const { files, fileByName, threads, drafts, replies, jumpTo, reviewBody, setReviewBody } = useStore();
+  const { files, fileByName, threads, drafts, replies, jumpTo, reviewBody, setReviewBody, acknowledgeDraft, submitReview } =
+    useStore();
   const payload = useReviewPayload();
   const pending = payload.comments.length + payload.replies.length;
+  // In a browser nothing is sent; the payload that would be sent is shown instead.
   const [submitted, setSubmitted] = useState<{ event: Event; payload: unknown } | null>(null);
+  const [sending, setSending] = useState<Event | null>(null);
+  const [result, setResult] = useState<SubmitResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const staleCount = [...drafts.values()].filter((d) => d.stale && isRealDraft(d)).length;
 
   const groups = useMemo(() => {
     const out: { key: string; title: string; draftItems: Draft[]; replyThreads: typeof threads }[] = [];
@@ -80,13 +85,30 @@ export function ReviewTab() {
   }, [files, drafts, replies, threads]);
 
   const body = reviewBody.trim();
+  const idle = sending === null && staleCount === 0;
   const canSubmit: Record<Event, boolean> = {
-    APPROVE: true,
-    COMMENT: body !== "" || pending > 0,
-    REQUEST_CHANGES: body !== "",
+    APPROVE: idle,
+    COMMENT: idle && (body !== "" || pending > 0),
+    REQUEST_CHANGES: idle && body !== "",
   };
-  const submit = (event: Event) => setSubmitted({ event, payload: { event, body: reviewBody, ...payload } });
-  const label = (name: string) => (pending > 0 ? `${name} · ${pending} comment${pending === 1 ? "" : "s"}` : name);
+  const submit = async (event: Event) => {
+    setError(null);
+    setResult(null);
+    setSubmitted(null);
+    setSending(event);
+    try {
+      const sent = await submitReview(event);
+      if (sent) setResult(sent);
+      else setSubmitted({ event, payload: { event, body: reviewBody, ...payload } });
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setSending(null);
+    }
+  };
+  const label = (name: Event, text: string) =>
+    sending === name ? "Sending…" : pending > 0 ? `${text} · ${pending} comment${pending === 1 ? "" : "s"}` : text;
+  const blockedHint = staleCount > 0 ? "Check the drafts marked out of date first" : undefined;
 
   return (
     <div className="review">
@@ -115,6 +137,15 @@ export function ReviewTab() {
                       Jump to line →
                     </button>
                   </div>
+                  {d.stale && isRealDraft(d) && (
+                    <div className="stale-warning">
+                      <span>The file changed since you wrote this, so it may now be on the wrong line.</span>
+                      <span className="spacer" />
+                      <button className="action small" onClick={() => acknowledgeDraft(d.key)}>
+                        Keep as is
+                      </button>
+                    </div>
+                  )}
                   <Snippet file={file} draft={d} />
                   <CommentBox draft={d} preview />
                 </div>
@@ -149,21 +180,45 @@ export function ReviewTab() {
             onChange={(e) => setReviewBody(e.target.value)}
           />
           <div className="submit-actions">
-            <button className="action" disabled={!canSubmit.COMMENT} onClick={() => submit("COMMENT")}>
-              {label("Comment")}
+            <button
+              className="action"
+              disabled={!canSubmit.COMMENT}
+              title={blockedHint}
+              onClick={() => submit("COMMENT")}
+            >
+              {label("COMMENT", "Comment")}
             </button>
             <button
               className="action reject"
               disabled={!canSubmit.REQUEST_CHANGES}
-              title={canSubmit.REQUEST_CHANGES ? undefined : "GitHub requires a comment to request changes"}
+              title={blockedHint ?? (body === "" ? "GitHub requires a comment to request changes" : undefined)}
               onClick={() => submit("REQUEST_CHANGES")}
             >
-              {label("Request changes")}
+              {label("REQUEST_CHANGES", "Request changes")}
             </button>
-            <button className="action approve" disabled={!canSubmit.APPROVE} onClick={() => submit("APPROVE")}>
-              {label("Approve")}
+            <button
+              className="action approve"
+              disabled={!canSubmit.APPROVE}
+              title={blockedHint}
+              onClick={() => submit("APPROVE")}
+            >
+              {label("APPROVE", "Approve")}
             </button>
           </div>
+          {error && <div className="submit-note error">Nothing was posted. {error}</div>}
+          {result && (
+            <div className={`submit-note ${result.conversationError || result.refreshError ? "warn" : "ok"}`}>
+              <div>Review submitted: {result.reviewUrl}</div>
+              {result.conversationError && (
+                <div>
+                  Your conversation comment was not posted ({result.conversationError}). It is still in your drafts.
+                </div>
+              )}
+              {result.refreshError && (
+                <div>Could not refresh the threads ({result.refreshError}). Restart pr-review to see your comments.</div>
+              )}
+            </div>
+          )}
           {submitted && (
             <div className="submitted">
               <div className="muted">Prototype: nothing was sent. This is what the backend would post to GitHub:</div>
