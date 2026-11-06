@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { textToLines } from "../lib/diff";
 import { langFor } from "../lib/highlight";
 import { firstNewIndex, isResolved, newCount, type FakeThread } from "../lib/threads";
 import { useStore } from "../store";
@@ -19,7 +20,12 @@ export function ThreadBox({ thread, expanded = false, preview = false }: Props) 
   const newFrom = firstNewIndex(thread, resolution);
   const nNew = newCount(thread, resolution);
   const [collapsed, setCollapsed] = useState(resolved && !expanded);
-  const fileLang = thread.file ? langFor(fileByName.get(thread.file)?.path ?? "") : null;
+  const file = thread.file ? fileByName.get(thread.file) : undefined;
+  const fileLang = file ? langFor(file.path) : null;
+  const replaces = useMemo(
+    () => (file && thread.side === "new" ? [textToLines(file.newText)[thread.line - 1] ?? ""] : null),
+    [file, thread.side, thread.line],
+  );
 
   useEffect(() => {
     setCollapsed(resolved && !expanded);
@@ -66,17 +72,27 @@ export function ThreadBox({ thread, expanded = false, preview = false }: Props) 
                   {isNew && <span className="badge-new inline">NEW</span>}
                 </span>
               </div>
-              <Markdown text={c.body} fileLang={fileLang} />
+              <Markdown text={c.body} fileLang={fileLang} replaces={replaces} />
             </div>
           </div>
         );
       })}
-      <ReplyBox threadId={thread.id} fileLang={fileLang} preview={preview} />
+      <ReplyBox threadId={thread.id} fileLang={fileLang} replaces={replaces} preview={preview} />
     </div>
   );
 }
 
-export function ReplyBox({ threadId, fileLang, preview }: { threadId: string; fileLang: string | null; preview: boolean }) {
+export function ReplyBox({
+  threadId,
+  fileLang,
+  replaces,
+  preview,
+}: {
+  threadId: string;
+  fileLang: string | null;
+  replaces: string[] | null;
+  preview: boolean;
+}) {
   const { replies, setReply } = useStore();
   const text = replies.get(threadId);
 
@@ -107,7 +123,7 @@ export function ReplyBox({ threadId, fileLang, preview }: { threadId: string; fi
         {preview && text.trim() !== "" && (
           <div className="preview">
             <div className="preview-label">Preview</div>
-            <Markdown text={text} fileLang={fileLang} />
+            <Markdown text={text} fileLang={fileLang} replaces={replaces} />
           </div>
         )}
       </div>

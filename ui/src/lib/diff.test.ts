@@ -6,7 +6,7 @@ import {
   parseUnifiedDiff,
   rangeFromRows,
   segmentsFor,
-  suggestionFor,
+  suggestionBlock,
   textToLines,
   wordRanges,
   type Row,
@@ -132,9 +132,9 @@ describe("drag clamping", () => {
     expect(rangeFromRows(rows, "new", lo, hi)?.start).toBeLessThanOrEqual(rangeFromRows(rows, "new", lo, hi)?.end ?? 0);
   });
 
-  test("suggestion only on multi-line new-side ranges", () => {
-    expect(suggestionFor({ side: "old", start: 1, end: 3 }, ["a", "b", "c"])).toBe("");
-    expect(suggestionFor({ side: "new", start: 2, end: 2 }, ["a", "b", "c"])).toBe("");
-    expect(suggestionFor({ side: "new", start: 1, end: 2 }, ["a", "b", "c"])).toBe("\n```suggestion\na\nb\n```");
+  test("suggestion blocks exist on the new side only, for single and multi-line ranges", () => {
+    expect(suggestionBlock({ side: "old", start: 1, end: 3 }, ["a", "b", "c"])).toBe("");
+    expect(suggestionBlock({ side: "new", start: 2, end: 2 }, ["a", "b", "c"])).toBe("```suggestion\nb\n```");
+    expect(suggestionBlock({ side: "new", start: 1, end: 2 }, ["a", "b", "c"])).toBe("```suggestion\na\nb\n```");
   });
 });

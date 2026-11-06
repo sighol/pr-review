@@ -19,7 +19,6 @@ export interface Draft {
   file: string;
   range: LineRange;
   text: string;
-  initial: string;
 }
 
 export interface JumpTarget {
@@ -45,7 +44,7 @@ interface Store {
 
   drafts: ReadonlyMap<string, Draft>;
   focus: { key: string; tick: number } | null;
-  createDraft: (file: string, range: LineRange, initial: string) => void;
+  createDraft: (file: string, range: LineRange) => void;
   patchDraft: (key: string, text: string) => void;
   removeDraft: (key: string) => void;
 
@@ -73,8 +72,8 @@ export function useStore(): Store {
   return s;
 }
 
-/** Untouched suggestion pre-fills and empty boxes don't count as pending. */
-export const isRealDraft = (d: Draft) => d.text.trim() !== "" && d.text !== d.initial;
+/** Empty boxes don't count as pending. */
+export const isRealDraft = (d: Draft) => d.text.trim() !== "";
 
 export function pendingReplies(replies: ReadonlyMap<string, string>): [string, string][] {
   return [...replies].filter(([, text]) => text.trim() !== "");
@@ -168,11 +167,9 @@ export function StoreProvider({ files, children }: { files: FileData[]; children
   );
   const [reviewBody, setReviewBody] = useState("");
 
-  const createDraft = useCallback((file: string, range: LineRange, initialText: string) => {
+  const createDraft = useCallback((file: string, range: LineRange) => {
     const key = draftKey(file, range);
-    setDrafts((prev) =>
-      prev.has(key) ? prev : new Map(prev).set(key, { key, file, range, text: initialText, initial: initialText }),
-    );
+    setDrafts((prev) => (prev.has(key) ? prev : new Map(prev).set(key, { key, file, range, text: "" })));
     setFocus((f) => ({ key, tick: (f?.tick ?? 0) + 1 }));
   }, []);
 

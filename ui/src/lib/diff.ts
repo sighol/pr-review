@@ -277,10 +277,13 @@ export function rangeFromRows(rows: Row[], side: Side, lo: number, hi: number): 
 
 export const rangeKey = (r: LineRange) => `${r.side}:${r.start}-${r.end}`;
 
-export function suggestionFor(range: LineRange, newLines: string[]): string {
-  if (range.side !== "new" || range.start === range.end) return "";
+export const SUGGESTION_OPEN = "```suggestion\n";
+
+/** A suggestion block holding the range's current new-side code; "" on the old side. */
+export function suggestionBlock(range: LineRange, newLines: string[]): string {
+  if (range.side !== "new") return "";
   const body = newLines.slice(range.start - 1, range.end).join("\n");
-  return `\n\`\`\`suggestion\n${body}\n\`\`\``;
+  return `${SUGGESTION_OPEN}${body}\n\`\`\``;
 }
 
 export interface Segment {

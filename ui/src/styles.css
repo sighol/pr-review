@@ -231,8 +231,9 @@ textarea {
   padding: 0 6px;
 }
 .action {
+  color: var(--fg);
   background: var(--bg-subtle);
-  border: 1px solid var(--border);
+  border: 1px solid #484f58;
   border-radius: 6px;
   padding: 2px 10px;
   cursor: pointer;
@@ -272,6 +273,15 @@ textarea {
   color: var(--muted);
   font-size: 12px;
   margin-bottom: 4px;
+}
+.head-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.action.small {
+  padding: 0 8px;
+  font-size: 12px;
 }
 .thread-comment + .thread-comment {
   margin-top: 8px;
@@ -558,9 +568,41 @@ textarea {
   color: var(--muted);
   font-size: 12px;
 }
-.md-suggestion .md-code {
+.md-suggestion .md-code.add-only {
   background: var(--add-line);
   padding: 6px 12px;
+}
+.md-diff {
+  padding: 0;
+}
+.md-diff-line {
+  display: flex;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.md-diff-line.del {
+  background: var(--del-line);
+}
+.md-diff-line.add {
+  background: var(--add-line);
+}
+.md-diff-sign {
+  flex: none;
+  width: 28px;
+  text-align: center;
+  color: var(--muted);
+  user-select: none;
+}
+.md-diff-text {
+  min-width: 0;
+}
+.md-diff-line.del mark {
+  background: var(--del-word);
+  border-radius: 3px;
+}
+.md-diff-line.add mark {
+  background: var(--add-word);
+  border-radius: 3px;
 }
 
 /* ---- review ---- */
