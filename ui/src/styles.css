@@ -294,10 +294,42 @@ textarea {
   font-family: var(--mono);
   font-size: 13px;
 }
+.reply-draft {
+  display: flex;
+  margin: 10px 0 0 28px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.draft-tag {
+  flex: none;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  padding: 8px 4px;
+  background: rgba(47, 129, 247, 0.18);
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-align: center;
+  user-select: none;
+}
+.reply-main {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px;
+}
+.reply-delete {
+  position: absolute;
+  top: 6px;
+  right: 10px;
+  font-size: 12px;
+}
 .comment .reply-box {
-  margin-top: 8px;
-  border-top: 1px solid var(--border);
-  padding-top: 8px;
+  min-height: 56px;
+  padding-right: 48px;
+  field-sizing: content;
 }
 
 .link {
@@ -613,11 +645,6 @@ textarea {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-}
-.reply-wrap {
-  margin-top: 8px;
-  border-top: 1px solid var(--border);
-  padding-top: 6px;
 }
 .submit-bar {
   position: sticky;
