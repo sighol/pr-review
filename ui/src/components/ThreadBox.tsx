@@ -1,23 +1,29 @@
 import { useEffect, useState } from "react";
-import { firstNewIndex, isResolved, type FakeThread, type Resolution } from "../lib/threads";
+import { langFor } from "../lib/highlight";
+import { firstNewIndex, isResolved, newCount, type FakeThread } from "../lib/threads";
+import { useStore } from "../store";
+import { Markdown } from "./Markdown";
 
 interface Props {
   thread: FakeThread;
-  resolution: Resolution | undefined;
-  onResolve: (thread: FakeThread) => void;
-  onReopen: (thread: FakeThread) => void;
+  /** Never collapse, even when resolved (used on the Review tab). */
+  expanded?: boolean;
+  /** Show a rendered preview under reply drafts. */
+  preview?: boolean;
 }
 
-export function ThreadBox({ thread, resolution, onResolve, onReopen }: Props) {
+export function ThreadBox({ thread, expanded = false, preview = false }: Props) {
+  const { resolutions, resolveThread, reopenThread, fileByName } = useStore();
+  const resolution = resolutions.get(thread.id);
   const resolved = isResolved(thread, resolution);
   const newFrom = firstNewIndex(thread, resolution);
-  const newCount = newFrom === null ? 0 : thread.comments.length - newFrom;
-  const [collapsed, setCollapsed] = useState(resolved);
-  const [reply, setReply] = useState<string | null>(null);
+  const nNew = newCount(thread, resolution);
+  const [collapsed, setCollapsed] = useState(resolved && !expanded);
+  const fileLang = thread.file ? langFor(fileByName.get(thread.file)?.path ?? "") : null;
 
   useEffect(() => {
-    setCollapsed(resolved);
-  }, [resolved]);
+    setCollapsed(resolved && !expanded);
+  }, [resolved, expanded]);
 
   if (collapsed) {
     return (
@@ -33,17 +39,17 @@ export function ThreadBox({ thread, resolution, onResolve, onReopen }: Props) {
     <div className={`comment thread ${resolved ? "is-resolved" : "is-open"}`}>
       <div className="thread-head">
         <span className={`status ${resolved ? "resolved" : "open"}`}>{resolved ? "✓ Resolved" : "● Open"}</span>
-        {newCount > 0 && <span className="badge-new">{newCount} new</span>}
+        {nNew > 0 && <span className="badge-new">{nNew} new</span>}
         <span className="gh-status" title="GitHub's own resolved flag">
           GitHub: {thread.githubResolved ? "resolved" : "unresolved"}
         </span>
         <span className="spacer" />
         {resolved ? (
-          <button className="action" onClick={() => onReopen(thread)}>
+          <button className="action" onClick={() => reopenThread(thread)}>
             Reopen
           </button>
         ) : (
-          <button className="action primary" onClick={() => onResolve(thread)}>
+          <button className="action primary" onClick={() => resolveThread(thread)}>
             Resolve
           </button>
         )}
@@ -60,24 +66,48 @@ export function ThreadBox({ thread, resolution, onResolve, onReopen }: Props) {
                   {isNew && <span className="badge-new inline">NEW</span>}
                 </span>
               </div>
-              <div className="body">{c.body}</div>
+              <Markdown text={c.body} fileLang={fileLang} />
             </div>
           </div>
         );
       })}
-      {reply === null ? (
-        <button className="link reply" onClick={() => setReply("")}>
-          Reply…
+      <ReplyBox threadId={thread.id} fileLang={fileLang} preview={preview} />
+    </div>
+  );
+}
+
+export function ReplyBox({ threadId, fileLang, preview }: { threadId: string; fileLang: string | null; preview: boolean }) {
+  const { replies, setReply } = useStore();
+  const text = replies.get(threadId);
+
+  if (text === undefined) {
+    return (
+      <button className="link reply" onClick={() => setReply(threadId, "")}>
+        Reply…
+      </button>
+    );
+  }
+  return (
+    <div className="reply-wrap">
+      <div className="comment-head">
+        <span>Draft reply</span>
+        <button className="link" onClick={() => setReply(threadId, null)}>
+          delete
         </button>
-      ) : (
-        <textarea
-          autoFocus
-          className="reply-box"
-          value={reply}
-          placeholder="Reply"
-          onChange={(e) => setReply(e.target.value)}
-          onBlur={() => reply.trim() === "" && setReply(null)}
-        />
+      </div>
+      <textarea
+        autoFocus={text === ""}
+        className="reply-box"
+        value={text}
+        placeholder="Reply"
+        onChange={(e) => setReply(threadId, e.target.value)}
+        onBlur={() => text.trim() === "" && setReply(threadId, null)}
+      />
+      {preview && text.trim() !== "" && (
+        <div className="preview">
+          <div className="preview-label">Preview</div>
+          <Markdown text={text} fileLang={fileLang} />
+        </div>
       )}
     </div>
   );

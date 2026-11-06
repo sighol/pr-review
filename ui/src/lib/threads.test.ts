@@ -4,6 +4,7 @@ import { firstNewIndex, isResolved, type FakeThread } from "./threads";
 const comment = (id: string) => ({ id, author: "a", when: "now", body: "" });
 const thread = (ids: string[]): FakeThread => ({
   id: "t",
+  file: null,
   side: "new",
   line: 1,
   githubResolved: false,
