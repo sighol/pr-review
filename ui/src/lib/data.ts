@@ -1,16 +1,6 @@
 import { useEffect, useState } from "react";
+import { fileDiff, fileText } from "./backend";
 import { stateOf, type CommitRange } from "./range";
-
-const cache = new Map<string, Promise<string>>();
-
-export function fetchText(url: string): Promise<string> {
-  let p = cache.get(url);
-  if (!p) {
-    p = fetch(url).then((r) => r.text());
-    cache.set(url, p);
-  }
-  return p;
-}
 
 export interface RangeData {
   /** Identifies the file and the two content states this data is for. */
@@ -33,11 +23,10 @@ export const rangeKey = (file: FileRef, range: CommitRange) =>
 export async function loadRangeData(file: FileRef, range: CommitRange): Promise<RangeData> {
   const from = stateOf(file.changedBy, range.from);
   const to = stateOf(file.changedBy, range.to);
-  const base = `/pr/files/${file.dir}`;
   const [oldText, newText, diffText] = await Promise.all([
-    fetchText(`${base}/text-${from}`),
-    fetchText(`${base}/text-${to}`),
-    from === to ? Promise.resolve("") : fetchText(`${base}/diff-${from}-${to}`),
+    fileText(file, from),
+    fileText(file, to),
+    from === to ? Promise.resolve("") : fileDiff(file, from, to),
   ]);
   return { key: rangeKey(file, range), oldText, newText, diffText };
 }

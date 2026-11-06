@@ -1,0 +1,17 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "pr-review",
+  "version": "0.1.0",
+  "identifier": "com.cognite.pr-review",
+  "build": {
+    "beforeDevCommand": { "script": "bun run dev", "cwd": "ui" },
+    "beforeBuildCommand": { "script": "bun run build", "cwd": "ui" },
+    "devUrl": "http://localhost:5173",
+    "frontendDist": "../ui/dist"
+  },
+  "app": {
+    "windows": [{ "label": "main", "title": "pr-review", "width": 1400, "height": 900 }],
+    "security": { "csp": null }
+  },
+  "bundle": { "active": false }
+}

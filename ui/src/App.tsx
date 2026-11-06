@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { fetchText } from "./lib/data";
+import { fileText, loadManifest } from "./lib/backend";
 import { routeUrl } from "./lib/route";
 import { PR, isResolved, newCount } from "./lib/threads";
 import { StoreProvider, useStore, type Commit, type FileData, type Tab } from "./store";
@@ -7,18 +7,13 @@ import { DiffTab } from "./tabs/DiffTab";
 import { ReviewTab, useReviewPayload } from "./tabs/ReviewTab";
 import { SummaryTab } from "./tabs/SummaryTab";
 
-interface Manifest {
-  commits: Commit[];
-  files: { path: string; dir: string; added: number; removed: number; changedBy: number[] }[];
-}
-
 interface Loaded {
   files: FileData[];
   commits: Commit[];
 }
 
 export async function loadAll(): Promise<Loaded> {
-  const manifest: Manifest = await fetch("/pr/manifest.json").then((r) => r.json());
+  const manifest = await loadManifest();
   const files = await Promise.all(
     manifest.files.map(
       async (f): Promise<FileData> => ({
@@ -28,7 +23,7 @@ export async function loadAll(): Promise<Loaded> {
         added: f.added,
         removed: f.removed,
         changedBy: f.changedBy,
-        newText: await fetchText(`/pr/files/${f.dir}/text-${Math.max(...f.changedBy)}`),
+        newText: await fileText(f, Math.max(...f.changedBy)),
       }),
     ),
   );
