@@ -676,3 +676,17 @@ textarea {
 .row.flash {
   animation: flash 1.6s ease-out;
 }
+
+@keyframes flash-thread {
+  from {
+    background: #26354d;
+    box-shadow: 0 0 0 2px rgba(56, 139, 253, 0.7);
+  }
+  to {
+    background: var(--bg);
+    box-shadow: 0 0 0 2px rgba(56, 139, 253, 0);
+  }
+}
+.comment.flash-thread {
+  animation: flash-thread 1s ease-out;
+}

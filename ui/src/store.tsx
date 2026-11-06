@@ -25,6 +25,8 @@ export interface JumpTarget {
   file: string;
   side: Side;
   line: number;
+  /** When set, scroll to and flash this thread instead of the code line. */
+  threadId?: string;
   tick: number;
 }
 
@@ -58,7 +60,7 @@ interface Store {
   setReviewBody: (s: string) => void;
 
   jump: JumpTarget | null;
-  jumpTo: (file: string, side: Side, line: number) => void;
+  jumpTo: (file: string, side: Side, line: number, threadId?: string) => void;
   clearJump: () => void;
 }
 
@@ -136,10 +138,10 @@ export function StoreProvider({ files, children }: { files: FileData[]; children
     setResolutions((prev) => new Map(prev).set(t.id, { through: prev.get(t.id)?.through ?? null, reopened: true }));
   }, []);
 
-  const jumpTo = useCallback((file: string, side: Side, line: number) => {
+  const jumpTo = useCallback((file: string, side: Side, line: number, threadId?: string) => {
     setCurrentFile(file);
     setTab("diff");
-    setJump((j) => ({ file, side, line, tick: (j?.tick ?? 0) + 1 }));
+    setJump((j) => ({ file, side, line, threadId, tick: (j?.tick ?? 0) + 1 }));
   }, []);
 
   const clearJump = useCallback(() => setJump(null), []);

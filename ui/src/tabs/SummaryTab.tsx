@@ -41,7 +41,7 @@ export function SummaryTab() {
           const n = newCount(t, r);
           const file = fileByName.get(t.file!);
           return (
-            <button className="index-row" key={t.id} onClick={() => jumpTo(t.file!, t.side, t.line)}>
+            <button className="index-row" key={t.id} onClick={() => jumpTo(t.file!, t.side, t.line, t.id)}>
               <span className={`status ${resolved ? "resolved" : "open"}`}>{resolved ? "✓ Resolved" : "● Open"}</span>
               {n > 0 && <span className="badge-new">{n} new</span>}
               <span className="loc">
