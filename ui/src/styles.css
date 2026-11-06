@@ -189,8 +189,81 @@ textarea {
 .comment.draft {
   border-color: var(--accent);
 }
-.comment.resolved {
-  opacity: 0.8;
+.comment.thread.is-open {
+  border-left: 3px solid #d29922;
+}
+.comment.thread.is-resolved {
+  border-left: 3px solid #3fb950;
+  opacity: 0.85;
+}
+.thread-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+.thread-head .spacer {
+  flex: 1;
+}
+.status {
+  font-weight: 600;
+}
+.status.open {
+  color: #d29922;
+}
+.status.resolved {
+  color: #3fb950;
+}
+.gh-status {
+  color: var(--muted);
+}
+.badge-new {
+  background: var(--accent);
+  color: #fff;
+  border-radius: 10px;
+  padding: 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.badge-new.inline {
+  margin-left: 8px;
+  padding: 0 6px;
+}
+.action {
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px 10px;
+  cursor: pointer;
+}
+.action.primary {
+  background: #238636;
+  border-color: #2ea043;
+  color: #fff;
+}
+.new-divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0 6px;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.new-divider::before,
+.new-divider::after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid var(--accent);
+}
+.thread-comment.new {
+  background: rgba(56, 139, 253, 0.08);
+  box-shadow: -8px 0 0 rgba(56, 139, 253, 0.08), inset 2px 0 0 var(--accent);
+  padding-left: 8px;
+  margin-left: -8px;
 }
 .comment-head {
   display: flex;
