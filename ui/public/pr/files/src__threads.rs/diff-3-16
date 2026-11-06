@@ -11,9 +11,9 @@ index 02a9590..303a5c5 100644
 +    github_resolved: Option<bool>,
      comments: Vec<ReviewComment>,
  }
- 
+
 @@ -68,8 +71,9 @@ pub async fn run(
- 
+
      eprintln!("Fetching origin (for commit numbers)...");
      git::fetch_origin(repo_path).await?;
 -    git::ensure_commits_available(repo_path, &pr_refs.base_oid, &pr_refs.head_oid).await?;
@@ -43,7 +43,7 @@ index 02a9590..303a5c5 100644
 @@ -147,18 +153,36 @@ pub async fn run(
              None => rendered.push_str(&skin.term_text("## Conversation\n").to_string()),
          }
- 
+
 +        let resolved_commit = resolutions.get(&discussion.id);
 +
          let mut markdown = String::new();
@@ -64,7 +64,7 @@ index 02a9590..303a5c5 100644
 +            }
          }
          rendered.push_str(&skin.term_text(&markdown).to_string());
- 
+
          let _ = execute!(io::stdout(), Clear(ClearType::All), MoveTo(0, 0));
          page(&rendered).await?;
          println!();
@@ -81,7 +81,7 @@ index 02a9590..303a5c5 100644
              unresolved.len()
 @@ -166,7 +190,7 @@ pub async fn run(
          io::stdout().flush()?;
- 
+
          match read_key().unwrap_or(KeyCode::Enter) {
 -            KeyCode::Char('q') | KeyCode::Char('c') => return Ok(()),
 +            KeyCode::Char('q') => return Ok(()),

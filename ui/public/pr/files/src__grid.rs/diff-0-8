@@ -13,5 +13,5 @@ index 3fea5d1..c6900b5 100644
 -    out.push_str(&"-".repeat("APPROVAL".len() + 1));
 +    out.push_str(&"-".repeat("COMMITS".len() + 1));
      out.push('\n');
- 
+
      for (idx, file) in files.iter().enumerate() {

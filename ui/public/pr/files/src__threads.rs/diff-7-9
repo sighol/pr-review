@@ -4,7 +4,7 @@ index c7f088e..d9a4846 100644
 +++ b/src/threads.rs
 @@ -167,7 +167,7 @@ pub async fn run(
          io::stdout().flush()?;
- 
+
          match read_key().unwrap_or(KeyCode::Enter) {
 -            KeyCode::Char('q') | KeyCode::Char('c') => return Ok(()),
 +            KeyCode::Char('q') => return Ok(()),

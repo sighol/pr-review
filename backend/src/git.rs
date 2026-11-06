@@ -38,7 +38,12 @@ async fn git(repo: &Path, args: &[&str]) -> Result<String> {
 pub async fn resolve_commit(repo: &Path, rev: &str) -> Result<String> {
     let out = run(
         repo,
-        &["rev-parse", "--verify", "--quiet", &format!("{rev}^{{commit}}")],
+        &[
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            &format!("{rev}^{{commit}}"),
+        ],
     )
     .await?;
     if !out.status.success() {
@@ -54,7 +59,11 @@ pub async fn merge_base(repo: &Path, a: &str, b: &str) -> Result<String> {
 /// Commits in `base..head`, oldest first.
 pub async fn commits_in_range(repo: &Path, base: &str, head: &str) -> Result<Vec<Commit>> {
     let format = format!("--format=%H{FIELD_SEP}%s");
-    let out = git(repo, &["log", "--reverse", &format, &format!("{base}..{head}")]).await?;
+    let out = git(
+        repo,
+        &["log", "--reverse", &format, &format!("{base}..{head}")],
+    )
+    .await?;
     Ok(out
         .lines()
         .map(|line| {
@@ -68,8 +77,16 @@ pub async fn commits_in_range(repo: &Path, base: &str, head: &str) -> Result<Vec
 }
 
 /// Lines added/removed per file between `base` and `head`. Binary files count as 0/0.
-pub async fn numstat(repo: &Path, base: &str, head: &str) -> Result<BTreeMap<String, (usize, usize)>> {
-    let out = git(repo, &["diff", "--numstat", "-z", "--no-renames", base, head]).await?;
+pub async fn numstat(
+    repo: &Path,
+    base: &str,
+    head: &str,
+) -> Result<BTreeMap<String, (usize, usize)>> {
+    let out = git(
+        repo,
+        &["diff", "--numstat", "-z", "--no-renames", base, head],
+    )
+    .await?;
     let mut stats = BTreeMap::new();
     for record in out.split('\0').filter(|r| !r.is_empty()) {
         let mut parts = record.splitn(3, '\t');
@@ -85,10 +102,22 @@ pub async fn numstat(repo: &Path, base: &str, head: &str) -> Result<BTreeMap<Str
 pub async fn files_in_commit(repo: &Path, oid: &str) -> Result<Vec<String>> {
     let out = git(
         repo,
-        &["diff-tree", "--no-commit-id", "--name-only", "-r", "-z", "--no-renames", oid],
+        &[
+            "diff-tree",
+            "--no-commit-id",
+            "--name-only",
+            "-r",
+            "-z",
+            "--no-renames",
+            oid,
+        ],
     )
     .await?;
-    Ok(out.split('\0').filter(|p| !p.is_empty()).map(String::from).collect())
+    Ok(out
+        .split('\0')
+        .filter(|p| !p.is_empty())
+        .map(String::from)
+        .collect())
 }
 
 /// The file's content at `oid`; empty if it does not exist there.
@@ -108,7 +137,16 @@ pub async fn file_text(repo: &Path, oid: &str, path: &str) -> Result<String> {
 pub async fn file_diff(repo: &Path, from: &str, to: &str, path: &str) -> Result<String> {
     git(
         repo,
-        &["diff", "--no-color", "--no-renames", "-U3", from, to, "--", path],
+        &[
+            "diff",
+            "--no-color",
+            "--no-renames",
+            "-U3",
+            from,
+            to,
+            "--",
+            path,
+        ],
     )
     .await
 }
@@ -198,7 +236,8 @@ pub(crate) mod testutil {
     impl TestRepo {
         pub fn new() -> Self {
             let n = COUNTER.fetch_add(1, Ordering::SeqCst);
-            let dir = std::env::temp_dir().join(format!("pr-review-core-{}-{n}", std::process::id()));
+            let dir =
+                std::env::temp_dir().join(format!("pr-review-core-{}-{n}", std::process::id()));
             let _ = std::fs::remove_dir_all(&dir);
             std::fs::create_dir_all(&dir).unwrap();
             let repo = Self { dir };
@@ -215,7 +254,8 @@ pub(crate) mod testutil {
         /// A clone of `other`, with `other` as its `origin`.
         pub fn clone_of(other: &TestRepo) -> Self {
             let n = COUNTER.fetch_add(1, Ordering::SeqCst);
-            let dir = std::env::temp_dir().join(format!("pr-review-core-{}-{n}", std::process::id()));
+            let dir =
+                std::env::temp_dir().join(format!("pr-review-core-{}-{n}", std::process::id()));
             let _ = std::fs::remove_dir_all(&dir);
             let out = std::process::Command::new("git")
                 .arg("clone")
@@ -224,7 +264,11 @@ pub(crate) mod testutil {
                 .arg(&dir)
                 .output()
                 .unwrap();
-            assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+            assert!(
+                out.status.success(),
+                "{}",
+                String::from_utf8_lossy(&out.stderr)
+            );
             Self { dir }
         }
 
@@ -235,7 +279,11 @@ pub(crate) mod testutil {
                 .args(args)
                 .output()
                 .unwrap();
-            assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+            assert!(
+                out.status.success(),
+                "git {args:?}: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
             String::from_utf8_lossy(&out.stdout).trim().to_string()
         }
 
@@ -280,8 +328,14 @@ mod tests {
         assert_eq!(
             commits,
             vec![
-                Commit { oid: c1.clone(), subject: "change a".into() },
-                Commit { oid: c2.clone(), subject: "add dir/b".into() },
+                Commit {
+                    oid: c1.clone(),
+                    subject: "change a".into()
+                },
+                Commit {
+                    oid: c2.clone(),
+                    subject: "add dir/b".into()
+                },
             ]
         );
 
@@ -289,8 +343,14 @@ mod tests {
         assert_eq!(stats.get("a.txt"), Some(&(2, 1)));
         assert_eq!(stats.get("dir/b.txt"), Some(&(1, 0)));
 
-        assert_eq!(files_in_commit(repo.path(), &c1).await.unwrap(), vec!["a.txt"]);
-        assert_eq!(files_in_commit(repo.path(), &c2).await.unwrap(), vec!["dir/b.txt"]);
+        assert_eq!(
+            files_in_commit(repo.path(), &c1).await.unwrap(),
+            vec!["a.txt"]
+        );
+        assert_eq!(
+            files_in_commit(repo.path(), &c2).await.unwrap(),
+            vec!["dir/b.txt"]
+        );
     }
 
     #[tokio::test]
@@ -300,7 +360,15 @@ mod tests {
         let c2 = repo.commit("two", &[("a.txt", Some("2\n"))]);
         assert!(file_changed(repo.path(), &c1, &c2, "a.txt").await);
         assert!(!file_changed(repo.path(), &c1, &c2, "b.txt").await);
-        assert!(file_changed(repo.path(), "0000000000000000000000000000000000000000", &c2, "b.txt").await);
+        assert!(
+            file_changed(
+                repo.path(),
+                "0000000000000000000000000000000000000000",
+                &c2,
+                "b.txt"
+            )
+            .await
+        );
         assert!(file_changed(repo.path(), "", &c2, "b.txt").await);
     }
 
@@ -308,10 +376,19 @@ mod tests {
     async fn file_text_and_diff() {
         let repo = TestRepo::new();
         let base = repo.commit("base", &[("a.txt", Some("1\n2\n"))]);
-        let c1 = repo.commit("edit", &[("a.txt", Some("1\n2\n3\n")), ("new.txt", Some("n\n"))]);
+        let c1 = repo.commit(
+            "edit",
+            &[("a.txt", Some("1\n2\n3\n")), ("new.txt", Some("n\n"))],
+        );
 
-        assert_eq!(file_text(repo.path(), &base, "a.txt").await.unwrap(), "1\n2\n");
-        assert_eq!(file_text(repo.path(), &c1, "a.txt").await.unwrap(), "1\n2\n3\n");
+        assert_eq!(
+            file_text(repo.path(), &base, "a.txt").await.unwrap(),
+            "1\n2\n"
+        );
+        assert_eq!(
+            file_text(repo.path(), &c1, "a.txt").await.unwrap(),
+            "1\n2\n3\n"
+        );
         assert_eq!(file_text(repo.path(), &base, "new.txt").await.unwrap(), "");
 
         let diff = file_diff(repo.path(), &base, &c1, "a.txt").await.unwrap();
@@ -345,9 +422,13 @@ mod tests {
         let repo = TestRepo::new();
         repo.commit("x", &[("sub/a.txt", Some("1\n"))]);
         let top = toplevel(&repo.path().join("sub")).await.unwrap();
-        assert_eq!(top.canonicalize().unwrap(), repo.path().canonicalize().unwrap());
+        assert_eq!(
+            top.canonicalize().unwrap(),
+            repo.path().canonicalize().unwrap()
+        );
 
-        let outside = std::env::temp_dir().join(format!("pr-review-core-nogit-{}", std::process::id()));
+        let outside =
+            std::env::temp_dir().join(format!("pr-review-core-nogit-{}", std::process::id()));
         std::fs::create_dir_all(&outside).unwrap();
         assert!(toplevel(&outside).await.is_err());
         let _ = std::fs::remove_dir_all(&outside);
@@ -366,8 +447,20 @@ mod tests {
 
         let local = TestRepo::clone_of(&remote);
         let range = fetch_pr(local.path(), 7, "main").await.unwrap();
-        assert_eq!(range, PrRange { base: base.clone(), head: first });
-        assert_eq!(commits_in_range(local.path(), &range.base, &range.head).await.unwrap().len(), 1);
+        assert_eq!(
+            range,
+            PrRange {
+                base: base.clone(),
+                head: first
+            }
+        );
+        assert_eq!(
+            commits_in_range(local.path(), &range.base, &range.head)
+                .await
+                .unwrap()
+                .len(),
+            1
+        );
 
         // A later push to the PR is picked up by the next fetch.
         remote.git(&["checkout", "-q", "feature"]);

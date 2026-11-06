@@ -13,7 +13,11 @@ use crate::{git, github};
 /// A draft is stale when the version of its file it was written against (the PR head for the
 /// right side, the PR base for the left) is not the current one and the file differs between them.
 async fn is_stale(repo: &Path, base: &str, head: &str, d: &Draft) -> bool {
-    let (was, now) = if d.side == "old" { (&d.base_oid, base) } else { (&d.head_oid, head) };
+    let (was, now) = if d.side == "old" {
+        (&d.base_oid, base)
+    } else {
+        (&d.head_oid, head)
+    };
     if was == now {
         return false;
     }
@@ -65,7 +69,10 @@ pub fn build_submission(saved: &SavedState, event: Event, head_oid: &str) -> Res
         .replies
         .iter()
         .filter(|r| r.thread_id != CONVERSATION_ID && non_blank(&r.body))
-        .map(|r| ThreadReply { thread_id: r.thread_id.clone(), body: r.body.clone() })
+        .map(|r| ThreadReply {
+            thread_id: r.thread_id.clone(),
+            body: r.body.clone(),
+        })
         .collect();
     let conversation_reply = saved
         .replies
@@ -75,8 +82,15 @@ pub fn build_submission(saved: &SavedState, event: Event, head_oid: &str) -> Res
 
     let has_body = non_blank(&saved.review_body);
     match event {
-        Event::RequestChanges if !has_body => bail!("GitHub requires a comment to request changes."),
-        Event::Comment if !has_body && comments.is_empty() && replies.is_empty() && conversation_reply.is_none() => {
+        Event::RequestChanges if !has_body => {
+            bail!("GitHub requires a comment to request changes.")
+        }
+        Event::Comment
+            if !has_body
+                && comments.is_empty()
+                && replies.is_empty()
+                && conversation_reply.is_none() =>
+        {
             bail!("There is nothing to send: write a comment first.")
         }
         _ => {}
@@ -124,13 +138,15 @@ pub async fn submit_saved(
         .await
         .context("the review was submitted, but clearing your local drafts failed")?;
 
-    let (threads, refresh_error) = match github::fetch_discussion(&key.owner, &key.repo, key.number).await {
-        Ok((raw, conversation)) => {
-            let numbers: HashMap<&str, usize> = commits.iter().map(|c| (c.oid.as_str(), c.n)).collect();
-            (Some(build_threads(raw, conversation, &numbers)), None)
-        }
-        Err(e) => (None, Some(format!("{e:#}"))),
-    };
+    let (threads, refresh_error) =
+        match github::fetch_discussion(&key.owner, &key.repo, key.number).await {
+            Ok((raw, conversation)) => {
+                let numbers: HashMap<&str, usize> =
+                    commits.iter().map(|c| (c.oid.as_str(), c.n)).collect();
+                (Some(build_threads(raw, conversation, &numbers)), None)
+            }
+            Err(e) => (None, Some(format!("{e:#}"))),
+        };
 
     Ok(SubmitResult {
         review_url: outcome.review_url,
@@ -163,7 +179,10 @@ mod tests {
     #[tokio::test]
     async fn staleness_follows_the_file_not_the_pr() {
         let repo = TestRepo::new();
-        let base = repo.commit("base", &[("a.txt", Some("1\n")), ("other.txt", Some("o\n"))]);
+        let base = repo.commit(
+            "base",
+            &[("a.txt", Some("1\n")), ("other.txt", Some("o\n"))],
+        );
         let c1 = repo.commit("c1", &[("a.txt", Some("2\n"))]);
         let c2 = repo.commit("c2", &[("other.txt", Some("o2\n"))]);
         let c3 = repo.commit("c3", &[("a.txt", Some("3\n"))]);
@@ -190,8 +209,14 @@ mod tests {
         SavedState {
             drafts: vec![draft("new", "h", "b")],
             replies: vec![
-                Reply { thread_id: "PRRT_1".into(), body: "agreed".into() },
-                Reply { thread_id: CONVERSATION_ID.into(), body: "thanks".into() },
+                Reply {
+                    thread_id: "PRRT_1".into(),
+                    body: "agreed".into(),
+                },
+                Reply {
+                    thread_id: CONVERSATION_ID.into(),
+                    body: "thanks".into(),
+                },
             ],
             review_body: "LGTM".into(),
             ..SavedState::default()
@@ -204,8 +229,21 @@ mod tests {
         assert_eq!(s.head_oid, "h");
         assert_eq!(s.body, "LGTM");
         assert_eq!(s.comments.len(), 1);
-        assert_eq!((s.comments[0].path.as_str(), s.comments[0].start_line, s.comments[0].end_line), ("a.txt", 1, 2));
-        assert_eq!(s.replies, vec![ThreadReply { thread_id: "PRRT_1".into(), body: "agreed".into() }]);
+        assert_eq!(
+            (
+                s.comments[0].path.as_str(),
+                s.comments[0].start_line,
+                s.comments[0].end_line
+            ),
+            ("a.txt", 1, 2)
+        );
+        assert_eq!(
+            s.replies,
+            vec![ThreadReply {
+                thread_id: "PRRT_1".into(),
+                body: "agreed".into()
+            }]
+        );
         assert_eq!(s.conversation_reply.as_deref(), Some("thanks"));
     }
 
@@ -213,7 +251,9 @@ mod tests {
     fn stale_drafts_block_submitting() {
         let mut s = saved();
         s.drafts[0].stale = true;
-        let err = build_submission(&s, Event::Comment, "h").unwrap_err().to_string();
+        let err = build_submission(&s, Event::Comment, "h")
+            .unwrap_err()
+            .to_string();
         assert!(err.contains("1 draft comment may be on the wrong line"));
     }
 
@@ -223,7 +263,10 @@ mod tests {
         assert!(build_submission(&empty, Event::Comment, "h").is_err());
         assert!(build_submission(&empty, Event::Approve, "h").is_ok());
 
-        let no_body = SavedState { drafts: vec![draft("new", "h", "b")], ..SavedState::default() };
+        let no_body = SavedState {
+            drafts: vec![draft("new", "h", "b")],
+            ..SavedState::default()
+        };
         assert!(build_submission(&no_body, Event::RequestChanges, "h").is_err());
         assert!(build_submission(&no_body, Event::Comment, "h").is_ok());
     }
@@ -231,7 +274,10 @@ mod tests {
     #[test]
     fn a_conversation_reply_alone_is_enough_to_comment() {
         let only = SavedState {
-            replies: vec![Reply { thread_id: CONVERSATION_ID.into(), body: "hi".into() }],
+            replies: vec![Reply {
+                thread_id: CONVERSATION_ID.into(),
+                body: "hi".into(),
+            }],
             ..SavedState::default()
         };
         assert!(build_submission(&only, Event::Comment, "h").is_ok());

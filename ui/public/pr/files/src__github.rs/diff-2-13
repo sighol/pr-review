@@ -12,7 +12,7 @@ index cb85df7..24e9df8 100644
      pub head_ref_name: String,
 +    pub title: String,
  }
- 
+
  #[derive(Deserialize)]
  struct PrViewJson {
 -    #[serde(rename = "baseRefOid")]
@@ -25,7 +25,7 @@ index cb85df7..24e9df8 100644
      head_ref_name: String,
 +    title: String,
  }
- 
+
  pub async fn fetch_pr_refs(owner: &str, repo: &str, pr_number: u64) -> Result<PrRefs> {
 @@ -31,7 +33,7 @@ pub async fn fetch_pr_refs(owner: &str, repo: &str, pr_number: u64) -> Result<Pr
              "--repo",
@@ -38,7 +38,7 @@ index cb85df7..24e9df8 100644
          .await
 @@ -48,9 +50,10 @@ pub async fn fetch_pr_refs(owner: &str, repo: &str, pr_number: u64) -> Result<Pr
          .context("failed to parse `gh pr view` output as JSON")?;
- 
+
      Ok(PrRefs {
 -        base_oid: parsed.base_ref_oid,
 +        base_ref_name: format!("origin/{}", parsed.base_ref_name),
@@ -47,4 +47,3 @@ index cb85df7..24e9df8 100644
 +        title: parsed.title,
      })
  }
- 

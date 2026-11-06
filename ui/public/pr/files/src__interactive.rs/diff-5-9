@@ -3,7 +3,7 @@ index c0c534a..f13b1c7 100644
 --- a/src/interactive.rs
 +++ b/src/interactive.rs
 @@ -3,7 +3,7 @@ use std::path::Path;
- 
+
  use anyhow::Result;
  use crossterm::cursor::MoveTo;
 -use crossterm::event::{self, Event, KeyCode, KeyEventKind};

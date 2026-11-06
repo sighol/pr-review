@@ -12,7 +12,7 @@ index 854d62d..257563d 100644
      pub head_ref_name: String,
 +    pub title: String,
  }
- 
+
  #[derive(Deserialize)]
  struct PrViewJson {
 -    #[serde(rename = "baseRefOid")]
@@ -25,7 +25,7 @@ index 854d62d..257563d 100644
      head_ref_name: String,
 +    title: String,
  }
- 
+
  pub async fn fetch_pr_refs(owner: &str, repo: &str, pr_number: u64) -> Result<PrRefs> {
 @@ -31,7 +33,7 @@ pub async fn fetch_pr_refs(owner: &str, repo: &str, pr_number: u64) -> Result<Pr
              "--repo",
@@ -38,7 +38,7 @@ index 854d62d..257563d 100644
          .await
 @@ -48,9 +50,10 @@ pub async fn fetch_pr_refs(owner: &str, repo: &str, pr_number: u64) -> Result<Pr
          .context("failed to parse `gh pr view` output as JSON")?;
- 
+
      Ok(PrRefs {
 -        base_oid: parsed.base_ref_oid,
 +        base_ref_name: format!("origin/{}", parsed.base_ref_name),
@@ -47,7 +47,7 @@ index 854d62d..257563d 100644
 +        title: parsed.title,
      })
  }
- 
+
 @@ -61,18 +64,24 @@ pub struct ReviewComment {
      pub author: String,
      pub created_at: DateTime<Utc>,
@@ -61,7 +61,7 @@ index 854d62d..257563d 100644
 +    /// top-level conversation comments.
 +    pub original_commit_oid: Option<String>,
  }
- 
+
 -/// An inline code-review comment thread, with GitHub's own resolved flag
 -/// intentionally omitted: this tool tracks its own, separate resolution
 -/// state locally (see `db::thread_resolutions`).
@@ -84,7 +84,7 @@ index 854d62d..257563d 100644
 +    is_resolved: bool,
      comments: CommentsConnection,
  }
- 
+
 @@ -134,8 +145,16 @@ struct CommentNode {
      #[serde(rename = "createdAt")]
      created_at: DateTime<Utc>,
@@ -100,7 +100,7 @@ index 854d62d..257563d 100644
 +struct OriginalCommit {
 +    oid: String,
  }
- 
+
  #[derive(Deserialize)]
 @@ -153,13 +172,16 @@ query($owner: String!, $repo: String!, $number: Int!, $after: String) {
            id
@@ -143,7 +143,7 @@ index 854d62d..257563d 100644
      body: String,
 +    url: String,
  }
- 
+
  /// Fetches the PR's top-level conversation comments (the ones with no
 @@ -306,7 +332,9 @@ pub async fn fetch_pr_conversation_comments(
                  .unwrap_or_else(|| "ghost".to_string()),

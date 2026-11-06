@@ -10,7 +10,7 @@ index 4c6ad38..3d79e49 100644
 +    #[arg(short = 'C', long, global = true)]
 +    pub repo: Option<PathBuf>,
  }
- 
+
  #[derive(Subcommand)]
 @@ -19,8 +22,6 @@ pub enum Command {
      Diff {
@@ -51,5 +51,5 @@ index 4c6ad38..3d79e49 100644
 +        pr_number: u64,
 +    },
  }
- 
+
  /// Accepts a PR number with an optional leading `#`, e.g. `123` or `#123`.

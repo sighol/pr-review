@@ -41,15 +41,24 @@ fn open_pr(state: State<'_, AppState>) -> Manifest {
 }
 
 #[tauri::command]
-async fn file_text(state: State<'_, AppState>, oid: String, path: String) -> Result<String, String> {
+async fn file_text(
+    state: State<'_, AppState>,
+    oid: String,
+    path: String,
+) -> Result<String, String> {
     git::file_text(&state.repo, &oid, &path).await.map_err(err)
 }
 
 #[tauri::command]
 async fn saved_state(state: State<'_, AppState>) -> Result<SavedState, String> {
-    review::load_saved(&state.db, &state.repo, &state.manifest.base, &state.manifest.head)
-        .await
-        .map_err(err)
+    review::load_saved(
+        &state.db,
+        &state.repo,
+        &state.manifest.base,
+        &state.manifest.head,
+    )
+    .await
+    .map_err(err)
 }
 
 #[tauri::command]
@@ -71,7 +80,11 @@ async fn set_file_approvals(
     file_path: String,
     commit_oids: Vec<String>,
 ) -> Result<(), String> {
-    state.db.set_file_approvals(&file_path, &commit_oids).await.map_err(err)
+    state
+        .db
+        .set_file_approvals(&file_path, &commit_oids)
+        .await
+        .map_err(err)
 }
 
 #[tauri::command]
@@ -85,7 +98,11 @@ async fn delete_draft(state: State<'_, AppState>, draft_key: String) -> Result<(
 }
 
 #[tauri::command]
-async fn save_reply(state: State<'_, AppState>, thread_id: String, body: String) -> Result<(), String> {
+async fn save_reply(
+    state: State<'_, AppState>,
+    thread_id: String,
+    body: String,
+) -> Result<(), String> {
     state.db.save_reply(&thread_id, &body).await.map_err(err)
 }
 
@@ -115,7 +132,9 @@ async fn file_diff(
     to_oid: String,
     path: String,
 ) -> Result<String, String> {
-    git::file_diff(&state.repo, &from_oid, &to_oid, &path).await.map_err(err)
+    git::file_diff(&state.repo, &from_oid, &to_oid, &path)
+        .await
+        .map_err(err)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -125,7 +144,12 @@ pub fn run() {
 
     let (opened, db) = tauri::async_runtime::block_on(async {
         let opened = pr::open_pr(&cwd, number, |step| eprintln!("{step}...")).await?;
-        let db = Db::open_default(opened.key.clone(), opened.manifest.head.clone(), opened.manifest.base.clone()).await?;
+        let db = Db::open_default(
+            opened.key.clone(),
+            opened.manifest.head.clone(),
+            opened.manifest.base.clone(),
+        )
+        .await?;
         anyhow::Ok((opened, db))
     })
     .unwrap_or_else(|e| exit_with(&format!("error: {e:#}"), 1));

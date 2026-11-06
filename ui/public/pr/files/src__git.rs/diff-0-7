@@ -3,7 +3,7 @@ index d21f421..f1472e4 100644
 --- a/src/git.rs
 +++ b/src/git.rs
 @@ -27,12 +27,8 @@ pub async fn fetch_origin(repo_path: &Path) -> Result<()> {
- 
+
  /// Errors out with a helpful message if `base_oid`/`head_oid` aren't present
  /// locally after `fetch_origin` (e.g. the PR's branch lives on a fork).
 -pub async fn ensure_commits_available(
@@ -20,7 +20,7 @@ index d21f421..f1472e4 100644
 @@ -344,6 +340,25 @@ pub async fn plain_diff(
      Ok(String::from_utf8_lossy(&output.stdout).into_owned())
  }
- 
+
 +pub async fn merge_base(repo_path: &Path, ref_a: &str, ref_b: &str) -> Result<String> {
 +    let output = Command::new("git")
 +        .arg("-C")

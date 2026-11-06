@@ -11,7 +11,7 @@ index 8e49c8f..303a5c5 100644
 +    github_resolved: Option<bool>,
      comments: Vec<ReviewComment>,
  }
- 
+
 @@ -89,6 +92,7 @@ pub async fn run(
                  .comments
                  .first()

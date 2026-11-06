@@ -5,7 +5,7 @@ index ff3772a..592cd1c 100644
 @@ -98,7 +98,7 @@ async fn main() -> Result<()> {
          .unwrap_or(true);
      let need_fetch = force_fetch || switching_pr;
- 
+
 -    let (base_ref_name, mut head_oid, _head_ref_name) = if need_fetch {
 +    let (base_ref_name, mut head_oid, _head_ref_name, pr_title) = if need_fetch {
          eprintln!("Fetching PR #{pr_number} from GitHub...");
@@ -36,12 +36,12 @@ index ff3772a..592cd1c 100644
 +        )
      };
 +    let pr_url = format!("https://github.com/{owner}/{repo_name}/pull/{pr_number}");
- 
+
      if let Some(commit) = commit_arg {
          let resolved = git::resolve_commit(&repo_path, commit).await?;
 @@ -139,13 +147,23 @@ async fn main() -> Result<()> {
      let approvals = db::load_approvals(&pool, pr_number).await?;
- 
+
      if !types::has_unapproved_changes(&files, &commits, &approvals) {
 -        print!("{}", grid::render_grid(&files, &commits, &approvals, None));
 +        print!(
@@ -53,7 +53,7 @@ index ff3772a..592cd1c 100644
          println!("\n\u{2713} All files approved!");
          return Ok(());
      }
- 
+
      if !interactive_mode {
 -        print!("{}", grid::render_grid(&files, &commits, &approvals, None));
 +        print!(
@@ -64,7 +64,7 @@ index ff3772a..592cd1c 100644
 +        );
          return Ok(());
      }
- 
+
 @@ -153,6 +171,8 @@ async fn main() -> Result<()> {
          &repo_path,
          &pool,

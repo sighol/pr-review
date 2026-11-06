@@ -139,9 +139,18 @@ fn string_at<'a>(v: &'a Value, pointer: &str) -> Result<&'a str> {
 
 /// Creates a pending review, fills it, and submits it. If anything goes wrong while the
 /// review is pending it is deleted, so a failure never leaves a half-posted review.
-pub async fn submit(gh: &impl GraphQl, owner: &str, repo: &str, number: u64, sub: &Submission) -> Result<Outcome> {
+pub async fn submit(
+    gh: &impl GraphQl,
+    owner: &str,
+    repo: &str,
+    number: u64,
+    sub: &Submission,
+) -> Result<Outcome> {
     let pr = gh
-        .call(PR_QUERY, json!({ "owner": owner, "repo": repo, "number": number }))
+        .call(
+            PR_QUERY,
+            json!({ "owner": owner, "repo": repo, "number": number }),
+        )
         .await?;
     let pr_id = string_at(&pr, "/repository/pullRequest/id")?.to_string();
     if string_at(&pr, "/repository/pullRequest/headRefOid")? != sub.head_oid {
@@ -150,8 +159,14 @@ pub async fn submit(gh: &impl GraphQl, owner: &str, repo: &str, number: u64, sub
              Restart pr-review to pick them up, then submit again."
         );
     }
-    if pr.pointer("/repository/pullRequest/reviews/totalCount").and_then(Value::as_u64) != Some(0) {
-        bail!("You already have a pending review on this PR on GitHub. Submit or discard it there first.");
+    if pr
+        .pointer("/repository/pullRequest/reviews/totalCount")
+        .and_then(Value::as_u64)
+        != Some(0)
+    {
+        bail!(
+            "You already have a pending review on this PR on GitHub. Submit or discard it there first."
+        );
     }
 
     let review = gh
@@ -173,13 +188,19 @@ pub async fn submit(gh: &impl GraphQl, owner: &str, repo: &str, number: u64, sub
 
     let conversation_error = match sub.conversation_reply.as_deref() {
         Some(body) => gh
-            .call(ADD_COMMENT, json!({ "input": { "subjectId": pr_id, "body": body } }))
+            .call(
+                ADD_COMMENT,
+                json!({ "input": { "subjectId": pr_id, "body": body } }),
+            )
             .await
             .err()
             .map(|e| format!("{e:#}")),
         None => None,
     };
-    Ok(Outcome { review_url, conversation_error })
+    Ok(Outcome {
+        review_url,
+        conversation_error,
+    })
 }
 
 async fn fill_and_submit(gh: &impl GraphQl, review_id: &str, sub: &Submission) -> Result<String> {
@@ -230,7 +251,12 @@ mod tests {
 
     impl Fake {
         fn new() -> Self {
-            Fake { calls: Mutex::new(vec![]), fail: &[], head: "HEAD", pending: 0 }
+            Fake {
+                calls: Mutex::new(vec![]),
+                fail: &[],
+                head: "HEAD",
+                pending: 0,
+            }
         }
 
         fn names(&self) -> Vec<&'static str> {
@@ -245,12 +271,30 @@ mod tests {
                     "pr",
                     json!({"repository": {"pullRequest": {"id": "PR1", "headRefOid": self.head, "reviews": {"totalCount": self.pending}}}}),
                 ),
-                ADD_REVIEW => ("review", json!({"addPullRequestReview": {"pullRequestReview": {"id": "R1"}}})),
-                ADD_THREAD => ("thread", json!({"addPullRequestReviewThread": {"thread": {"id": "T"}}})),
-                ADD_REPLY => ("reply", json!({"addPullRequestReviewThreadReply": {"comment": {"id": "C"}}})),
-                SUBMIT => ("submit", json!({"submitPullRequestReview": {"pullRequestReview": {"url": "https://example/r"}}})),
-                DELETE => ("delete", json!({"deletePullRequestReview": {"pullRequestReview": {"id": "R1"}}})),
-                ADD_COMMENT => ("comment", json!({"addComment": {"commentEdge": {"node": {"url": "https://example/c"}}}})),
+                ADD_REVIEW => (
+                    "review",
+                    json!({"addPullRequestReview": {"pullRequestReview": {"id": "R1"}}}),
+                ),
+                ADD_THREAD => (
+                    "thread",
+                    json!({"addPullRequestReviewThread": {"thread": {"id": "T"}}}),
+                ),
+                ADD_REPLY => (
+                    "reply",
+                    json!({"addPullRequestReviewThreadReply": {"comment": {"id": "C"}}}),
+                ),
+                SUBMIT => (
+                    "submit",
+                    json!({"submitPullRequestReview": {"pullRequestReview": {"url": "https://example/r"}}}),
+                ),
+                DELETE => (
+                    "delete",
+                    json!({"deletePullRequestReview": {"pullRequestReview": {"id": "R1"}}}),
+                ),
+                ADD_COMMENT => (
+                    "comment",
+                    json!({"addComment": {"commentEdge": {"node": {"url": "https://example/c"}}}}),
+                ),
                 other => panic!("unexpected query {other}"),
             };
             self.calls.lock().unwrap().push((name, variables));
@@ -267,10 +311,25 @@ mod tests {
             body: "needs work".into(),
             head_oid: "HEAD".into(),
             comments: vec![
-                NewComment { path: "a.rs".into(), body: "one line".into(), side: "new".into(), start_line: 3, end_line: 3 },
-                NewComment { path: "b.rs".into(), body: "range".into(), side: "old".into(), start_line: 5, end_line: 8 },
+                NewComment {
+                    path: "a.rs".into(),
+                    body: "one line".into(),
+                    side: "new".into(),
+                    start_line: 3,
+                    end_line: 3,
+                },
+                NewComment {
+                    path: "b.rs".into(),
+                    body: "range".into(),
+                    side: "old".into(),
+                    start_line: 5,
+                    end_line: 8,
+                },
             ],
-            replies: vec![ThreadReply { thread_id: "PRRT_1".into(), body: "agreed".into() }],
+            replies: vec![ThreadReply {
+                thread_id: "PRRT_1".into(),
+                body: "agreed".into(),
+            }],
             conversation_reply: Some("thanks".into()),
         }
     }
@@ -279,36 +338,62 @@ mod tests {
     async fn posts_everything_in_one_review_in_order() {
         let gh = Fake::new();
         let out = submit(&gh, "o", "r", 7, &submission()).await.unwrap();
-        assert_eq!(gh.names(), ["pr", "review", "thread", "thread", "reply", "submit", "comment"]);
+        assert_eq!(
+            gh.names(),
+            [
+                "pr", "review", "thread", "thread", "reply", "submit", "comment"
+            ]
+        );
         assert_eq!(out.review_url, "https://example/r");
         assert_eq!(out.conversation_error, None);
 
         let calls = gh.calls.lock().unwrap();
         assert_eq!(calls[1].1, json!({"pr": "PR1", "commit": "HEAD"}));
         assert_eq!(calls[4].1["input"]["pullRequestReviewThreadId"], "PRRT_1");
-        assert_eq!(calls[5].1["input"], json!({"pullRequestReviewId": "R1", "event": "REQUEST_CHANGES", "body": "needs work"}));
-        assert_eq!(calls[6].1["input"], json!({"subjectId": "PR1", "body": "thanks"}));
+        assert_eq!(
+            calls[5].1["input"],
+            json!({"pullRequestReviewId": "R1", "event": "REQUEST_CHANGES", "body": "needs work"})
+        );
+        assert_eq!(
+            calls[6].1["input"],
+            json!({"subjectId": "PR1", "body": "thanks"})
+        );
     }
 
     #[tokio::test]
     async fn a_failure_while_pending_deletes_the_review_and_never_submits() {
-        let gh = Fake { fail: &["reply"], ..Fake::new() };
+        let gh = Fake {
+            fail: &["reply"],
+            ..Fake::new()
+        };
         let err = submit(&gh, "o", "r", 7, &submission()).await.unwrap_err();
         assert!(format!("{err:#}").contains("boom in reply"));
-        assert_eq!(gh.names(), ["pr", "review", "thread", "thread", "reply", "delete"]);
+        assert_eq!(
+            gh.names(),
+            ["pr", "review", "thread", "thread", "reply", "delete"]
+        );
     }
 
     #[tokio::test]
     async fn a_failed_cleanup_is_reported_too() {
-        let gh = Fake { fail: &["thread", "delete"], ..Fake::new() };
-        let err = format!("{:#}", submit(&gh, "o", "r", 7, &submission()).await.unwrap_err());
+        let gh = Fake {
+            fail: &["thread", "delete"],
+            ..Fake::new()
+        };
+        let err = format!(
+            "{:#}",
+            submit(&gh, "o", "r", 7, &submission()).await.unwrap_err()
+        );
         assert!(err.contains("boom in thread"));
         assert!(err.contains("could not delete the pending review"));
     }
 
     #[tokio::test]
     async fn an_existing_pending_review_stops_everything() {
-        let gh = Fake { pending: 1, ..Fake::new() };
+        let gh = Fake {
+            pending: 1,
+            ..Fake::new()
+        };
         let err = submit(&gh, "o", "r", 7, &submission()).await.unwrap_err();
         assert!(err.to_string().contains("pending review"));
         assert_eq!(gh.names(), ["pr"]);
@@ -316,7 +401,10 @@ mod tests {
 
     #[tokio::test]
     async fn a_moved_head_stops_everything() {
-        let gh = Fake { head: "NEWER", ..Fake::new() };
+        let gh = Fake {
+            head: "NEWER",
+            ..Fake::new()
+        };
         let err = submit(&gh, "o", "r", 7, &submission()).await.unwrap_err();
         assert!(err.to_string().contains("new commits"));
         assert_eq!(gh.names(), ["pr"]);
@@ -324,7 +412,10 @@ mod tests {
 
     #[tokio::test]
     async fn a_failed_conversation_comment_does_not_undo_the_review() {
-        let gh = Fake { fail: &["comment"], ..Fake::new() };
+        let gh = Fake {
+            fail: &["comment"],
+            ..Fake::new()
+        };
         let out = submit(&gh, "o", "r", 7, &submission()).await.unwrap();
         assert_eq!(out.review_url, "https://example/r");
         assert!(out.conversation_error.unwrap().contains("boom in comment"));
@@ -334,19 +425,33 @@ mod tests {
     #[tokio::test]
     async fn no_conversation_reply_means_no_comment_call() {
         let gh = Fake::new();
-        let sub = Submission { conversation_reply: None, ..submission() };
+        let sub = Submission {
+            conversation_reply: None,
+            ..submission()
+        };
         submit(&gh, "o", "r", 7, &sub).await.unwrap();
         assert!(!gh.names().contains(&"comment"));
     }
 
     #[test]
     fn thread_input_anchors_lines_and_sides() {
-        let single = NewComment { path: "a.rs".into(), body: "b".into(), side: "new".into(), start_line: 3, end_line: 3 };
+        let single = NewComment {
+            path: "a.rs".into(),
+            body: "b".into(),
+            side: "new".into(),
+            start_line: 3,
+            end_line: 3,
+        };
         assert_eq!(
             thread_input("R", &single),
             json!({"pullRequestReviewId": "R", "path": "a.rs", "body": "b", "line": 3, "side": "RIGHT"})
         );
-        let range = NewComment { side: "old".into(), start_line: 5, end_line: 8, ..single };
+        let range = NewComment {
+            side: "old".into(),
+            start_line: 5,
+            end_line: 8,
+            ..single
+        };
         assert_eq!(
             thread_input("R", &range),
             json!({"pullRequestReviewId": "R", "path": "a.rs", "body": "b", "line": 8, "side": "LEFT",
@@ -357,7 +462,10 @@ mod tests {
     #[test]
     fn parses_events() {
         assert_eq!("APPROVE".parse::<Event>().unwrap(), Event::Approve);
-        assert_eq!("REQUEST_CHANGES".parse::<Event>().unwrap(), Event::RequestChanges);
+        assert_eq!(
+            "REQUEST_CHANGES".parse::<Event>().unwrap(),
+            Event::RequestChanges
+        );
         assert!("MERGE".parse::<Event>().is_err());
     }
 }

@@ -3,7 +3,7 @@ index 91d0645..e1fcbfa 100644
 --- a/src/interactive.rs
 +++ b/src/interactive.rs
 @@ -3,7 +3,7 @@ use std::path::Path;
- 
+
  use anyhow::Result;
  use crossterm::cursor::MoveTo;
 -use crossterm::event::{self, Event, KeyCode, KeyEventKind};
@@ -22,7 +22,7 @@ index 91d0645..e1fcbfa 100644
      base_oid: &str,
 @@ -28,7 +30,15 @@ pub async fn run(
      let mut selected_idx = first_unapproved(files, commits, &approvals);
- 
+
      loop {
 -        redraw(files, commits, &approvals, Some(selected_idx));
 +        redraw(
@@ -57,7 +57,7 @@ index 91d0645..e1fcbfa 100644
                      pool,
 @@ -67,7 +86,9 @@ pub async fn run(
          }
- 
+
          if !has_unapproved_changes(files, commits, &approvals) {
 -            redraw(files, commits, &approvals, None);
 +            redraw(
@@ -68,7 +68,7 @@ index 91d0645..e1fcbfa 100644
          }
 @@ -111,13 +132,27 @@ fn step(
  }
- 
+
  fn redraw(
 +    pr_number: u64,
 +    pr_title: &str,
@@ -93,7 +93,7 @@ index 91d0645..e1fcbfa 100644
 +        )
 +    );
  }
- 
+
  /// Reads a single keypress, entering raw mode only for the duration of the read
 @@ -126,6 +161,15 @@ pub fn read_key() -> Result<KeyCode> {
      enable_raw_mode()?;

@@ -5,16 +5,16 @@ index 0462882..172c5c0 100644
 @@ -9,7 +9,7 @@ mod pager;
  mod threads;
  mod types;
- 
+
 -use std::path::Path;
 +use std::path::{Path, PathBuf};
- 
+
  use anyhow::{Context, Result, bail};
  use clap::Parser;
 @@ -39,13 +39,23 @@ async fn resolve_pr(
      Ok((owner, repo_name, pool, pr_number, stored_active))
  }
- 
+
 +fn traverse_up_to_git_repo(path: &Path) -> PathBuf {
 +    if path.join(".git").is_dir() || path.join(".jj").is_dir() {
 +        return path.to_owned();
@@ -28,11 +28,11 @@ index 0462882..172c5c0 100644
  #[tokio::main]
  async fn main() -> Result<()> {
      let cli = Cli::parse();
- 
+
      let repo_path = match cli.repo {
          Some(p) => p.clone(),
 -        None => std::env::current_dir()?,
 +        None => traverse_up_to_git_repo(&std::env::current_dir()?),
      };
- 
+
      if let Command::Get = &cli.command {

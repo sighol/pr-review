@@ -36,7 +36,12 @@ pub struct Comment {
 }
 
 fn comment(c: RawComment) -> Comment {
-    Comment { id: c.id, author: c.author, created_at: c.created_at, body: c.body }
+    Comment {
+        id: c.id,
+        author: c.author,
+        created_at: c.created_at,
+        body: c.body,
+    }
 }
 
 /// `commit_numbers` maps a commit oid to its 1-based number in the PR.
@@ -96,7 +101,13 @@ mod tests {
         }
     }
 
-    fn raw_thread(id: &str, side: &str, line: Option<i64>, outdated: bool, commit: Option<&str>) -> RawThread {
+    fn raw_thread(
+        id: &str,
+        side: &str,
+        line: Option<i64>,
+        outdated: bool,
+        commit: Option<&str>,
+    ) -> RawThread {
         RawThread {
             id: id.into(),
             path: "src/a.rs".into(),
@@ -122,7 +133,15 @@ mod tests {
             &numbers,
         );
         assert_eq!(threads.len(), 3);
-        assert_eq!((threads[0].side, threads[0].line, threads[0].original_line, threads[0].commit), ("new", Some(9), 7, 2));
+        assert_eq!(
+            (
+                threads[0].side,
+                threads[0].line,
+                threads[0].original_line,
+                threads[0].commit
+            ),
+            ("new", Some(9), 7, 2)
+        );
         assert_eq!((threads[1].side, threads[1].commit), ("old", 1));
         assert_eq!((threads[2].line, threads[2].commit), (None, 1));
         assert_eq!(threads[0].file.as_deref(), Some("src/a.rs"));
@@ -131,7 +150,11 @@ mod tests {
 
     #[test]
     fn outdated_threads_have_no_current_line_even_if_github_sends_one() {
-        let t = build_threads(vec![raw_thread("t", "RIGHT", Some(9), true, None)], vec![], &HashMap::new());
+        let t = build_threads(
+            vec![raw_thread("t", "RIGHT", Some(9), true, None)],
+            vec![],
+            &HashMap::new(),
+        );
         assert_eq!(t[0].line, None);
     }
 
@@ -154,14 +177,25 @@ mod tests {
         let none = build_threads(vec![], vec![], &HashMap::new());
         assert!(none.is_empty());
 
-        let t = build_threads(vec![], vec![raw_comment("IC_1", None), raw_comment("IC_2", None)], &HashMap::new());
+        let t = build_threads(
+            vec![],
+            vec![raw_comment("IC_1", None), raw_comment("IC_2", None)],
+            &HashMap::new(),
+        );
         assert_eq!(t.len(), 1);
-        assert_eq!((t[0].id.as_str(), t[0].file.as_deref(), t[0].comments.len()), ("conversation", None, 2));
+        assert_eq!(
+            (t[0].id.as_str(), t[0].file.as_deref(), t[0].comments.len()),
+            ("conversation", None, 2)
+        );
     }
 
     #[test]
     fn serializes_for_the_frontend() {
-        let t = build_threads(vec![raw_thread("t", "LEFT", Some(1), false, None)], vec![], &HashMap::new());
+        let t = build_threads(
+            vec![raw_thread("t", "LEFT", Some(1), false, None)],
+            vec![],
+            &HashMap::new(),
+        );
         let v = serde_json::to_value(&t[0]).unwrap();
         assert_eq!(v["side"], "old");
         assert_eq!(v["originalLine"], 7);

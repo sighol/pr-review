@@ -4,7 +4,7 @@ index c6900b5..1ffd25f 100644
 +++ b/src/grid.rs
 @@ -18,6 +18,9 @@ const BOLD_RESET: &str = "\x1b[22m";
  const RESET: &str = "\x1b[0m";
- 
+
  pub fn render_grid(
 +    pr_number: u64,
 +    pr_title: &str,
@@ -15,7 +15,7 @@ index c6900b5..1ffd25f 100644
 @@ -25,6 +28,13 @@ pub fn render_grid(
  ) -> String {
      let mut out = String::new();
- 
+
 +    out.push_str(BOLD);
 +    out.push_str(&hyperlink(pr_url, &format!("#{pr_number}")));
 +    out.push_str(BOLD_RESET);
@@ -29,7 +29,7 @@ index c6900b5..1ffd25f 100644
 @@ -116,6 +126,12 @@ fn pad_and_bold_filename(abbrev: &str, width: usize) -> String {
      )
  }
- 
+
 +/// Wraps `text` in an OSC 8 terminal hyperlink escape sequence pointing at
 +/// `url`.
 +fn hyperlink(url: &str, text: &str) -> String {
@@ -42,7 +42,7 @@ index c6900b5..1ffd25f 100644
 @@ -179,19 +195,43 @@ mod tests {
              removed: 50,
          };
- 
+
 -        let out = render_grid(&[short, long], &commits, &Approvals::new(), None);
 +        let out = render_grid(
 +            123,
@@ -54,18 +54,18 @@ index c6900b5..1ffd25f 100644
 +            None,
 +        );
          let lines: Vec<&str> = out.lines().collect();
- 
+
          // "1/0" pads "1" to width 3 (matching "100") and "0" to width 2
          // (matching "50"), so both '/' land at the same column.
 -        assert!(lines[2].contains(&format!("{FG_GREEN}  1{FG_DEFAULT}/{FG_RED} 0{FG_DEFAULT}")));
 -        assert!(lines[3].contains(&format!("{FG_GREEN}100{FG_DEFAULT}/{FG_RED}50{FG_DEFAULT}")));
 +        assert!(lines[4].contains(&format!("{FG_GREEN}  1{FG_DEFAULT}/{FG_RED} 0{FG_DEFAULT}")));
 +        assert!(lines[5].contains(&format!("{FG_GREEN}100{FG_DEFAULT}/{FG_RED}50{FG_DEFAULT}")));
- 
+
          let slash_col = |line: &str| line.find('/').unwrap();
 -        assert_eq!(slash_col(lines[2]), slash_col(lines[3]));
 +        assert_eq!(slash_col(lines[4]), slash_col(lines[5]));
- 
+
          let bar_col = |line: &str| line.find(" | ").unwrap();
 -        assert_eq!(bar_col(lines[2]), bar_col(lines[3]));
 +        assert_eq!(bar_col(lines[4]), bar_col(lines[5]));
@@ -86,12 +86,12 @@ index c6900b5..1ffd25f 100644
 +        assert!(header.contains(&hyperlink("https://github.com/o/r/pull/123", "#123")));
 +        assert!(header.contains("Some title"));
      }
- 
+
      #[test]
 @@ -219,7 +259,15 @@ mod tests {
          };
          let approvals = Approvals::new();
- 
+
 -        let out = render_grid(&[file], &commits, &approvals, Some(0));
 +        let out = render_grid(
 +            1,

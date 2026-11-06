@@ -3,7 +3,7 @@ index 02a9590..c7f088e 100644
 --- a/src/threads.rs
 +++ b/src/threads.rs
 @@ -68,8 +68,9 @@ pub async fn run(
- 
+
      eprintln!("Fetching origin (for commit numbers)...");
      git::fetch_origin(repo_path).await?;
 -    git::ensure_commits_available(repo_path, &pr_refs.base_oid, &pr_refs.head_oid).await?;

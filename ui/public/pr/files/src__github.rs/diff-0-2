@@ -10,7 +10,7 @@ index 854d62d..cb85df7 100644
 +    /// top-level conversation comments.
 +    pub original_commit_oid: Option<String>,
  }
- 
+
  /// An inline code-review comment thread, with GitHub's own resolved flag
 @@ -136,6 +139,13 @@ struct CommentNode {
      body: String,
@@ -24,7 +24,7 @@ index 854d62d..cb85df7 100644
 +struct OriginalCommit {
 +    oid: String,
  }
- 
+
  #[derive(Deserialize)]
 @@ -160,6 +170,7 @@ query($owner: String!, $repo: String!, $number: Int!, $after: String) {
                createdAt

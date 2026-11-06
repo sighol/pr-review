@@ -10,7 +10,7 @@ index a6ade7a..3d79e49 100644
 +    #[arg(short = 'C', long, global = true)]
 +    pub repo: Option<PathBuf>,
  }
- 
+
  #[derive(Subcommand)]
 @@ -15,11 +18,10 @@ pub enum Command {
      /// Display the grid and enter interactive mode. Reuses the last-reviewed
@@ -64,5 +64,5 @@ index a6ade7a..3d79e49 100644
 +        pr_number: u64,
 +    },
  }
- 
+
  /// Accepts a PR number with an optional leading `#`, e.g. `123` or `#123`.
