@@ -1,8 +1,10 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
 use tokio::process::Command;
+use tracing::{debug, warn};
 
 const FIELD_SEP: char = '\u{1f}';
 
@@ -12,24 +14,26 @@ pub struct Commit {
     pub subject: String,
 }
 
+/// Runs git. A non-zero exit is not an error here (some callers probe), only a failure to start is.
 async fn run(repo: &Path, args: &[&str]) -> Result<std::process::Output> {
-    Command::new("git")
+    let started = Instant::now();
+    let out = Command::new("git")
         .arg("-C")
         .arg(repo)
         .args(args)
         .output()
         .await
-        .with_context(|| format!("failed to run git {}", args.join(" ")))
+        .with_context(|| format!("failed to run git {}", args.join(" ")))?;
+    debug!("git {} -> {} in {:?}", args.join(" "), out.status, started.elapsed());
+    Ok(out)
 }
 
 async fn git(repo: &Path, args: &[&str]) -> Result<String> {
     let out = run(repo, args).await?;
     if !out.status.success() {
-        bail!(
-            "git {} failed: {}",
-            args.join(" "),
-            String::from_utf8_lossy(&out.stderr).trim()
-        );
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        warn!("git {} failed ({}): {}", args.join(" "), out.status, stderr.trim());
+        bail!("git {} failed: {}", args.join(" "), stderr.trim());
     }
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }

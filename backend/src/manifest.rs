@@ -3,6 +3,7 @@ use std::path::Path;
 
 use anyhow::Result;
 use serde::Serialize;
+use tracing::warn;
 
 use crate::git;
 use crate::github::PrMeta;
@@ -56,14 +57,25 @@ pub async fn build_manifest(repo: &Path, base_rev: &str, head_rev: &str) -> Resu
         }
     }
 
+    let last_commit = commits.len();
     let files = stats
         .into_iter()
-        .map(|(path, (added, removed))| ManifestFile {
-            dir: path.replace('/', "__"),
-            changed_by: changed_by.remove(&path).unwrap_or_default(),
-            path,
-            added,
-            removed,
+        .map(|(path, (added, removed))| {
+            let mut touched_by = changed_by.remove(&path).unwrap_or_default();
+            if touched_by.is_empty() {
+                // The file differs between base and head, but no single commit's own diff shows it
+                // (a merge commit that resolved a conflict, for instance). Attribute it to the last
+                // commit so it can still be reviewed instead of breaking the commit ranges.
+                warn!("{path} changed in the PR but no commit touches it on its own; attributing it to the last commit");
+                touched_by.push(last_commit);
+            }
+            ManifestFile {
+                dir: path.replace('/', "__"),
+                changed_by: touched_by,
+                path,
+                added,
+                removed,
+            }
         })
         .collect();
 
@@ -92,6 +104,26 @@ pub async fn build_manifest(repo: &Path, base_rev: &str, head_rev: &str) -> Resu
 mod tests {
     use super::*;
     use crate::git::testutil::TestRepo;
+
+    #[tokio::test]
+    async fn a_file_only_a_merge_commit_added_is_attributed_to_the_last_commit() {
+        let repo = TestRepo::new();
+        repo.git(&["symbolic-ref", "HEAD", "refs/heads/main"]);
+        let base = repo.commit("base", &[("a.txt", Some("1\n"))]);
+        repo.git(&["checkout", "-q", "-b", "side"]);
+        repo.commit("side work", &[("side.txt", Some("s\n"))]);
+        repo.git(&["checkout", "-q", "-b", "pr", &base]);
+        repo.commit("pr work", &[("a.txt", Some("2\n"))]);
+        repo.git(&["merge", "--no-ff", "--no-commit", "-q", "side"]);
+        std::fs::write(repo.path().join("evil.txt"), "e\n").unwrap();
+        repo.git(&["add", "-A"]);
+        repo.git(&["commit", "-q", "-m", "merge side"]);
+
+        let m = build_manifest(repo.path(), &base, "HEAD").await.unwrap();
+        assert!(m.files.iter().all(|f| !f.changed_by.is_empty()), "{:?}", m.files);
+        let evil = m.files.iter().find(|f| f.path == "evil.txt").unwrap();
+        assert_eq!(evil.changed_by, vec![m.commits.len()]);
+    }
 
     #[tokio::test]
     async fn manifest_matches_fixture_shape() {

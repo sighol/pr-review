@@ -13,3 +13,7 @@ test-ui:
 
 run-dev:
     cargo tauri dev -- -- 3
+
+install:
+    cargo tauri build
+    cp target/release/pr-review ~/.cargo/bin/

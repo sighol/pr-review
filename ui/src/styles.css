@@ -153,6 +153,25 @@ textarea {
   padding: 24px;
   color: var(--muted);
 }
+.fatal {
+  padding: 24px;
+  max-width: 900px;
+}
+.fatal h2 {
+  margin: 0 0 12px;
+  color: #f85149;
+}
+.fatal pre {
+  margin: 0 0 12px;
+  padding: 12px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+}
 
 .diff {
   font-family: var(--mono);
