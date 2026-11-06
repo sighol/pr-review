@@ -16,7 +16,7 @@ import {
   type Side,
 } from "../lib/diff";
 import { tokenize } from "../lib/highlight";
-import { FAKE_THREADS, type FakeThread } from "../lib/threads";
+import { FAKE_THREADS, lastCommentId, type FakeThread, type Resolution } from "../lib/threads";
 import { CommentBox, type Draft } from "./CommentBox";
 import { ThreadBox } from "./ThreadBox";
 
@@ -57,6 +57,21 @@ export function DiffView({ fixtureName, path, oldText, newText, diffText, wholeF
       cancelled = true;
     };
   }, [oldText, newText, path]);
+
+  const [resolutions, setResolutions] = useState<Map<string, Resolution>>(
+    () =>
+      new Map(
+        (FAKE_THREADS[fixtureName] ?? []).flatMap((t) =>
+          t.resolvedThrough ? [[t.id, { through: t.resolvedThrough, reopened: false }] as const] : [],
+        ),
+      ),
+  );
+  const resolveThread = useCallback((t: FakeThread) => {
+    setResolutions((prev) => new Map(prev).set(t.id, { through: lastCommentId(t), reopened: false }));
+  }, []);
+  const reopenThread = useCallback((t: FakeThread) => {
+    setResolutions((prev) => new Map(prev).set(t.id, { through: prev.get(t.id)?.through ?? null, reopened: true }));
+  }, []);
 
   const [drafts, setDrafts] = useState<Map<string, Draft>>(new Map());
   const [focus, setFocus] = useState<{ key: string; tick: number } | null>(null);
@@ -192,7 +207,7 @@ export function DiffView({ fixtureName, path, oldText, newText, diffText, wholeF
             )}
             {threadsByRow.get(i)?.map((t) => (
               <div className="attached" data-ri={i} key={t.id}>
-                <ThreadBox thread={t} />
+                <ThreadBox thread={t} resolution={resolutions.get(t.id)} onResolve={resolveThread} onReopen={reopenThread} />
               </div>
             ))}
             {draftsByRow.get(i)?.map((d) => (
