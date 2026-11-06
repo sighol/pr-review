@@ -10,7 +10,7 @@ const excerpt = (s: string) => {
 };
 
 export function SummaryTab() {
-  const { threads, resolutions, fileByName, jumpTo, pr } = useStore();
+  const { threads, resolutions, jumpTo, pr } = useStore();
   const lineThreads = sortThreads(
     threads.filter((t) => t.file !== null),
     resolutions,
@@ -43,13 +43,12 @@ export function SummaryTab() {
           const r = resolutions.get(t.id);
           const resolved = isResolved(t, r);
           const n = newCount(t, r);
-          const file = fileByName.get(t.file!);
           return (
             <button className="index-row" key={t.id} onClick={() => jumpTo(t.file!, t.side, threadLine(t), t.id)}>
               <span className={`status ${resolved ? "resolved" : "open"}`}>{resolved ? "✓ Resolved" : "● Open"}</span>
               {n > 0 && <span className="badge-new">{n} new</span>}
               <span className="loc">
-                {file?.path}:{threadLine(t)}{t.line === null ? " (outdated)" : ""}
+                {t.file}:{threadLine(t)}{t.line === null ? " (outdated)" : ""}
               </span>
               <span className="excerpt">{excerpt(t.comments[t.comments.length - 1].body)}</span>
               <span className="jump">Jump →</span>

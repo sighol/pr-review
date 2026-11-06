@@ -34,7 +34,8 @@ export function ThreadBox({ thread, expanded = false, preview = false }: Props) 
   const asOf = asOfRange(thread);
   // Only offer the older view when the comment was made on an earlier version of the file,
   // and only when clicking would actually change the diff.
-  const showAsOf = !!file && !!range && thread.commit < Math.max(...file.changedBy) && !sameRange(range, asOf);
+  const showAsOf =
+    !!file && !!range && thread.commit > 0 && thread.commit < Math.max(...file.changedBy) && !sameRange(range, asOf);
 
   useEffect(() => {
     setCollapsed(resolved && !expanded);

@@ -5,6 +5,7 @@ import {
   asOfRange,
   commentable,
   defaultRange,
+  placeable,
   rangeForSide,
   rangeForThread,
   threadPlacement,
@@ -232,7 +233,9 @@ export function StoreProvider({
     const current = currentRangeRef(file);
     const thread = threadOf(threads, r);
     if (thread) {
-      if (threadPlacement(thread, current, file.changedBy) === null) setRange(file.path, rangeForThread(thread, current, headN));
+      if (placeable(thread) && threadPlacement(thread, current, file.changedBy) === null) {
+        setRange(file.path, rangeForThread(thread, current, headN));
+      }
       return;
     }
     const l = parseLine(r.line);
@@ -312,7 +315,7 @@ export function StoreProvider({
   );
   const viewAsOf = useCallback(
     (thread: FakeThread) => {
-      if (!thread.file) return;
+      if (!thread.file || thread.commit === 0) return;
       setRange(thread.file, asOfRange(thread));
       navigate({ tab: "diff", file: thread.file, thread: thread.id });
     },

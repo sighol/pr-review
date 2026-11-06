@@ -61,6 +61,12 @@ export function threadPlacement(t: ThreadAnchor, range: CommitRange, changedBy: 
   return null;
 }
 
+/**
+ * False for a thread that no commit range can show: outdated on the new side, and made on a
+ * commit that is not in the PR (commit 0), so there is no version of the file to anchor it to.
+ */
+export const placeable = (t: ThreadAnchor) => t.side === "old" || t.line !== null || t.commit > 0;
+
 /** A range that shows the thread, changing as little of the current range as possible. */
 export function rangeForThread(t: ThreadAnchor, current: CommitRange, headN: number): CommitRange {
   if (t.side === "old") return { from: 0, to: current.to };

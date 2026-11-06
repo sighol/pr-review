@@ -1,4 +1,5 @@
 import type { Side } from "./diff";
+import { relativeTime } from "./time";
 
 export interface FakeComment {
   id: string;
@@ -16,13 +17,33 @@ export interface FakeThread {
   line: number | null;
   /** The line in the version the reviewer saw, i.e. at `commit`. */
   originalLine: number;
-  /** The commit the thread was made on (GitHub's `originalCommit`). */
+  /** The commit the thread was made on (GitHub's `originalCommit`); 0 when that commit is not in the PR. */
   commit: number;
   /** GitHub's own resolved flag; independent of our local resolution. */
   githubResolved: boolean;
   /** Seed for local state: the comment id we last resolved this thread through. */
   resolvedThrough?: string;
   comments: FakeComment[];
+}
+
+/** A thread as the backend sends it. */
+export interface ThreadJson {
+  id: string;
+  file: string | null;
+  side: Side;
+  line: number | null;
+  originalLine: number;
+  /** Commit number; 0 when unknown (force-pushed away) or for the conversation. */
+  commit: number;
+  githubResolved: boolean;
+  comments: { id: string; author: string; createdAt: string; body: string }[];
+}
+
+export function threadFromJson(j: ThreadJson, now: number): FakeThread {
+  return {
+    ...j,
+    comments: j.comments.map((c) => ({ id: c.id, author: c.author, when: relativeTime(c.createdAt, now), body: c.body })),
+  };
 }
 
 /**

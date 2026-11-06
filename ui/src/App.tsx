@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { fileText, loadManifest, loadSaved, type SavedState } from "./lib/backend";
 import { routeUrl } from "./lib/route";
-import { ALL_THREADS, PR, isResolved, newCount, type FakeThread, type PrInfo } from "./lib/threads";
+import { ALL_THREADS, PR, isResolved, newCount, threadFromJson, type FakeThread, type PrInfo } from "./lib/threads";
 import { StoreProvider, useStore, type Commit, type FileData, type Tab } from "./store";
 import { DiffTab } from "./tabs/DiffTab";
 import { ReviewTab, useReviewPayload } from "./tabs/ReviewTab";
@@ -30,12 +30,13 @@ export async function loadAll(): Promise<Loaded> {
       }),
     ),
   );
-  // Real PRs have no threads until they are fetched from GitHub; the fake ones only fit the fixtures.
+  const now = Date.now();
   return {
     files,
     commits: manifest.commits,
     pr: manifest.pr ?? PR,
-    threads: manifest.pr ? [] : ALL_THREADS,
+    // The fake threads only fit the fixtures, which have no `threads`.
+    threads: manifest.threads ? manifest.threads.map((t) => threadFromJson(t, now)) : ALL_THREADS,
     saved: await loadSaved(),
   };
 }

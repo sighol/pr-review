@@ -10,3 +10,6 @@ typecheck:
 
 test-ui:
     cd ui && bun test
+
+run-dev:
+    cargo tauri dev -- -- 3

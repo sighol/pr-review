@@ -6,6 +6,7 @@ use serde::Serialize;
 
 use crate::git;
 use crate::github::PrMeta;
+use crate::threads::Thread;
 
 /// Same JSON shape as `ui/scripts/make-fixtures.py` writes to `public/pr/manifest.json`,
 /// plus `pr` when a real PR was opened.
@@ -13,6 +14,9 @@ use crate::github::PrMeta;
 pub struct Manifest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pr: Option<PrMeta>,
+    /// Review threads and the PR conversation; present when a real PR was opened.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub threads: Option<Vec<Thread>>,
     pub base: String,
     pub head: String,
     pub commits: Vec<ManifestCommit>,
@@ -74,7 +78,7 @@ pub async fn build_manifest(repo: &Path, base_rev: &str, head_rev: &str) -> Resu
         })
         .collect();
 
-    Ok(Manifest { pr: None, base, head, commits, files })
+    Ok(Manifest { pr: None, threads: None, base, head, commits, files })
 }
 
 #[cfg(test)]
