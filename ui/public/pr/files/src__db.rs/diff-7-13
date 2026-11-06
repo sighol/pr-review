@@ -8,11 +8,11 @@ index 1efb65a..0c838dc 100644
      pub head_ref_name: String,
 +    pub title: String,
  }
- 
+
  pub async fn open(owner: &str, repo: &str) -> Result<SqlitePool> {
 @@ -92,16 +93,18 @@ pub async fn record_approvals(
  }
- 
+
  pub async fn load_active_pr(pool: &SqlitePool) -> Result<Option<ActivePr>> {
 -    let row =
 -        sqlx::query("SELECT pr_number, base_ref_name, head_ref_name FROM active_pr WHERE id = 1")
@@ -25,7 +25,7 @@ index 1efb65a..0c838dc 100644
 +    .fetch_optional(pool)
 +    .await
 +    .context("failed to load active PR")?;
- 
+
      Ok(row.map(|row| ActivePr {
          pr_number: row.get::<i64, _>("pr_number") as u64,
          base_ref_name: row.get::<String, _>("base_ref_name"),
@@ -33,7 +33,7 @@ index 1efb65a..0c838dc 100644
 +        title: row.get::<String, _>("title"),
      }))
  }
- 
+
 @@ -110,16 +113,18 @@ pub async fn save_active_pr(
      pr_number: u64,
      base_ref_name: &str,
@@ -57,9 +57,9 @@ index 1efb65a..0c838dc 100644
      .await
      .context("failed to save active PR")?;
 @@ -247,22 +252,24 @@ mod tests {
- 
+
          assert!(load_active_pr(&pool).await.unwrap().is_none());
- 
+
 -        save_active_pr(&pool, 42, "base1", "feature-a")
 +        save_active_pr(&pool, 42, "base1", "feature-a", "Title one")
              .await
@@ -69,7 +69,7 @@ index 1efb65a..0c838dc 100644
          assert_eq!(active.base_ref_name, "base1");
          assert_eq!(active.head_ref_name, "feature-a");
 +        assert_eq!(active.title, "Title one");
- 
+
          // Only one active PR is tracked at a time; saving again overwrites it.
 -        save_active_pr(&pool, 43, "base2", "feature-b")
 +        save_active_pr(&pool, 43, "base2", "feature-b", "Title two")
@@ -80,6 +80,6 @@ index 1efb65a..0c838dc 100644
          assert_eq!(active.base_ref_name, "base2");
          assert_eq!(active.head_ref_name, "feature-b");
 +        assert_eq!(active.title, "Title two");
- 
+
          pool.close().await;
          let _ = std::fs::remove_file(&path);

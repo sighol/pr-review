@@ -5,7 +5,7 @@ index c7f088e..f7e3257 100644
 @@ -148,12 +148,22 @@ pub async fn run(
              None => rendered.push_str(&skin.term_text("## Conversation\n").to_string()),
          }
- 
+
 +        let resolved_commit = resolutions.get(&discussion.id);
 +
          let mut markdown = String::new();
@@ -26,10 +26,10 @@ index c7f088e..f7e3257 100644
 +            }
          }
          rendered.push_str(&skin.term_text(&markdown).to_string());
- 
+
 @@ -167,7 +177,7 @@ pub async fn run(
          io::stdout().flush()?;
- 
+
          match read_key().unwrap_or(KeyCode::Enter) {
 -            KeyCode::Char('q') | KeyCode::Char('c') => return Ok(()),
 +            KeyCode::Char('q') => return Ok(()),

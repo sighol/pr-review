@@ -78,7 +78,14 @@ pub async fn build_manifest(repo: &Path, base_rev: &str, head_rev: &str) -> Resu
         })
         .collect();
 
-    Ok(Manifest { pr: None, threads: None, base, head, commits, files })
+    Ok(Manifest {
+        pr: None,
+        threads: None,
+        base,
+        head,
+        commits,
+        files,
+    })
 }
 
 #[cfg(test)]
@@ -94,23 +101,43 @@ mod tests {
         let c2 = repo.commit("add b", &[("dir/b.txt", Some("b\n"))]);
         let c3 = repo.commit("edit a again", &[("a.txt", Some("1\n2\n3\n"))]);
 
-        let m = build_manifest(repo.path(), &base[..8], "HEAD").await.unwrap();
+        let m = build_manifest(repo.path(), &base[..8], "HEAD")
+            .await
+            .unwrap();
         assert_eq!(m.base, base);
         assert_eq!(m.head, c3);
         assert_eq!(
-            m.commits.iter().map(|c| (c.n, c.oid.as_str(), c.subject.as_str())).collect::<Vec<_>>(),
-            vec![(1, c1.as_str(), "edit a"), (2, c2.as_str(), "add b"), (3, c3.as_str(), "edit a again")]
+            m.commits
+                .iter()
+                .map(|c| (c.n, c.oid.as_str(), c.subject.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                (1, c1.as_str(), "edit a"),
+                (2, c2.as_str(), "add b"),
+                (3, c3.as_str(), "edit a again")
+            ]
         );
         assert_eq!(m.commits[0].short, c1[..7]);
 
         let files: Vec<_> = m
             .files
             .iter()
-            .map(|f| (f.path.as_str(), f.dir.as_str(), f.added, f.removed, f.changed_by.clone()))
+            .map(|f| {
+                (
+                    f.path.as_str(),
+                    f.dir.as_str(),
+                    f.added,
+                    f.removed,
+                    f.changed_by.clone(),
+                )
+            })
             .collect();
         assert_eq!(
             files,
-            vec![("a.txt", "a.txt", 2, 0, vec![1, 3]), ("dir/b.txt", "dir__b.txt", 1, 0, vec![2])]
+            vec![
+                ("a.txt", "a.txt", 2, 0, vec![1, 3]),
+                ("dir/b.txt", "dir__b.txt", 1, 0, vec![2])
+            ]
         );
 
         let json = serde_json::to_value(&m).unwrap();

@@ -5,15 +5,15 @@ index 8edbaf2..e5c1025 100644
 @@ -9,9 +9,9 @@ mod pager;
  mod threads;
  mod types;
- 
+
 -use std::path::PathBuf;
 +use std::path::Path;
- 
+
 -use anyhow::{Context, Result};
 +use anyhow::{Context, Result, bail};
  use clap::Parser;
  use sqlx::SqlitePool;
- 
+
 @@ -21,21 +21,9 @@ use cli::{Cli, Command};
  /// active — either from `pr_number_arg` or (if omitted) the last-reviewed PR
  /// for this repo. Shared by every subcommand.
@@ -36,20 +36,20 @@ index 8edbaf2..e5c1025 100644
 -
 +) -> Result<(String, String, SqlitePool, u64, Option<db::ActivePr>)> {
      let (owner, repo_name) = git::origin_owner_repo(&repo_path).await?;
- 
+
      let pool = db::open(&owner, &repo_name).await?;
 @@ -48,21 +36,59 @@ async fn resolve_pr(
               run e.g. `pr-review sync 123`",
          )?;
- 
+
 -    Ok((repo_path, owner, repo_name, pool, pr_number, stored_active))
 +    Ok((owner, repo_name, pool, pr_number, stored_active))
  }
- 
+
  #[tokio::main]
  async fn main() -> Result<()> {
      let cli = Cli::parse();
- 
+
 +    let repo_path = match cli.repo {
 +        Some(p) => p.clone(),
 +        None => std::env::current_dir()?,
@@ -105,7 +105,7 @@ index 8edbaf2..e5c1025 100644
 @@ -74,26 +100,26 @@ async fn main() -> Result<()> {
          .await;
      }
- 
+
 -    let (pr_number_arg, repo_arg, force_fetch, commit_arg, interactive_mode, side_by_side) =
 +    let (pr_number_arg, force_fetch, commit_arg, interactive_mode, side_by_side) =
          match &cli.command {
@@ -130,18 +130,18 @@ index 8edbaf2..e5c1025 100644
 +                unreachable!("handled above")
 +            }
          };
- 
+
 -    let (repo_path, owner, repo_name, pool, pr_number, stored_active) =
 -        resolve_pr(repo_arg, pr_number_arg).await?;
 +    let (owner, repo_name, pool, pr_number, stored_active) =
 +        resolve_pr(&repo_path, pr_number_arg).await?;
- 
+
      let switching_pr = stored_active
          .as_ref()
 @@ -101,25 +127,46 @@ async fn main() -> Result<()> {
          .unwrap_or(true);
      let need_fetch = force_fetch || switching_pr;
- 
+
 -    let (base_oid, mut head_oid, _head_ref_name) = if need_fetch {
 +    let (base_ref_name, mut head_oid, _head_ref_name, pr_title) = if need_fetch {
          eprintln!("Fetching PR #{pr_number} from GitHub...");
@@ -178,7 +178,7 @@ index 8edbaf2..e5c1025 100644
 +        )
      };
 +    let pr_url = format!("https://github.com/{owner}/{repo_name}/pull/{pr_number}");
- 
+
      if let Some(commit) = commit_arg {
          let resolved = git::resolve_commit(&repo_path, commit).await?;
 -        git::ensure_is_descendant(&repo_path, &base_oid, &resolved).await?;
@@ -188,12 +188,12 @@ index 8edbaf2..e5c1025 100644
 +    let base_oid = git::merge_base(&repo_path, &base_ref_name, &head_oid)
 +        .await?
 +        .to_string();
- 
+
      let commits = git::commits_in_range(&repo_path, &base_oid, &head_oid).await?;
      let file_paths = git::changed_files_in_range(&repo_path, &base_oid, &head_oid).await?;
 @@ -129,13 +176,23 @@ async fn main() -> Result<()> {
      let approvals = db::load_approvals(&pool, pr_number).await?;
- 
+
      if !types::has_unapproved_changes(&files, &commits, &approvals) {
 -        print!("{}", grid::render_grid(&files, &commits, &approvals, None));
 +        print!(
@@ -205,7 +205,7 @@ index 8edbaf2..e5c1025 100644
          println!("\n\u{2713} All files approved!");
          return Ok(());
      }
- 
+
      if !interactive_mode {
 -        print!("{}", grid::render_grid(&files, &commits, &approvals, None));
 +        print!(
@@ -216,7 +216,7 @@ index 8edbaf2..e5c1025 100644
 +        );
          return Ok(());
      }
- 
+
 @@ -143,6 +200,8 @@ async fn main() -> Result<()> {
          &repo_path,
          &pool,

@@ -4,7 +4,7 @@ index 69f1d48..02a9590 100644
 +++ b/src/threads.rs
 @@ -115,8 +115,10 @@ pub async fn run(
      }
- 
+
      let skin = MadSkin::default();
 +    let mut discussion_index = 0;
      let mut all_resolved = true;
@@ -23,7 +23,7 @@ index 69f1d48..02a9590 100644
 +            unresolved.len()
 +        );
          io::stdout().flush()?;
- 
+
          match read_key().unwrap_or(KeyCode::Enter) {
 -            KeyCode::Char('q') => return Ok(()),
 +            KeyCode::Char('q') | KeyCode::Char('c') => return Ok(()),

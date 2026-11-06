@@ -13,7 +13,7 @@ index f13b1c7..e1fcbfa 100644
      base_oid: &str,
 @@ -28,7 +30,15 @@ pub async fn run(
      let mut selected_idx = first_unapproved(files, commits, &approvals);
- 
+
      loop {
 -        redraw(files, commits, &approvals, Some(selected_idx));
 +        redraw(
@@ -47,7 +47,7 @@ index f13b1c7..e1fcbfa 100644
                      repo_path,
 @@ -68,7 +86,9 @@ pub async fn run(
          }
- 
+
          if !has_unapproved_changes(files, commits, &approvals) {
 -            redraw(files, commits, &approvals, None);
 +            redraw(
@@ -58,7 +58,7 @@ index f13b1c7..e1fcbfa 100644
          }
 @@ -112,13 +132,27 @@ fn step(
  }
- 
+
  fn redraw(
 +    pr_number: u64,
 +    pr_title: &str,
@@ -83,5 +83,5 @@ index f13b1c7..e1fcbfa 100644
 +        )
 +    );
  }
- 
+
  /// Reads a single keypress, entering raw mode only for the duration of the read

@@ -16,5 +16,5 @@ index 7c2ddc5..3d79e49 100644
 +        pr_number: u64,
 +    },
  }
- 
+
  /// Accepts a PR number with an optional leading `#`, e.g. `123` or `#123`.

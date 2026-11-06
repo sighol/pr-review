@@ -20,4 +20,3 @@ index 7c2ddc5..c67f767 100644
 +        pr_number: u64,
      },
  }
- 

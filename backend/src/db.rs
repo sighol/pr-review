@@ -89,7 +89,8 @@ impl Db {
     /// `base_oid` are the PR's current head and base, stamped on every draft saved.
     pub async fn open(path: &Path, key: PrKey, head_oid: String, base_oid: String) -> Result<Db> {
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).with_context(|| format!("could not create {}", parent.display()))?;
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("could not create {}", parent.display()))?;
         }
         let options = SqliteConnectOptions::new()
             .filename(path)
@@ -105,10 +106,23 @@ impl Db {
         Self::open(&default_path()?, key, head_oid, base_oid).await
     }
 
-    async fn connect(options: SqliteConnectOptions, key: PrKey, head_oid: String, base_oid: String) -> Result<Db> {
-        let pool = SqlitePoolOptions::new().max_connections(4).connect_with(options).await?;
+    async fn connect(
+        options: SqliteConnectOptions,
+        key: PrKey,
+        head_oid: String,
+        base_oid: String,
+    ) -> Result<Db> {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(4)
+            .connect_with(options)
+            .await?;
         MIGRATOR.run(&pool).await?;
-        Ok(Db { pool, key, head_oid, base_oid })
+        Ok(Db {
+            pool,
+            key,
+            head_oid,
+            base_oid,
+        })
     }
 
     pub fn key(&self) -> &PrKey {
@@ -153,15 +167,23 @@ impl Db {
         .bind(number)
         .fetch_all(&self.pool)
         .await?;
-        let review_body = sqlx::query("SELECT body FROM review_bodies WHERE owner = ?1 AND repo = ?2 AND pr_number = ?3")
-            .bind(owner)
-            .bind(repo)
-            .bind(number)
-            .fetch_optional(&self.pool)
-            .await?
-            .map(|row| row.get("body"))
-            .unwrap_or_default();
-        Ok(SavedState { approvals, drafts, replies, resolutions, review_body })
+        let review_body = sqlx::query(
+            "SELECT body FROM review_bodies WHERE owner = ?1 AND repo = ?2 AND pr_number = ?3",
+        )
+        .bind(owner)
+        .bind(repo)
+        .bind(number)
+        .fetch_optional(&self.pool)
+        .await?
+        .map(|row| row.get("body"))
+        .unwrap_or_default();
+        Ok(SavedState {
+            approvals,
+            drafts,
+            replies,
+            resolutions,
+            review_body,
+        })
     }
 
     /// Replaces the approved commits of one file (an empty list unapproves it).
@@ -304,7 +326,12 @@ impl Db {
         Ok(())
     }
 
-    pub async fn set_resolution(&self, thread_id: &str, resolved_through: Option<&str>, reopened: bool) -> Result<()> {
+    pub async fn set_resolution(
+        &self,
+        thread_id: &str,
+        resolved_through: Option<&str>,
+        reopened: bool,
+    ) -> Result<()> {
         let (owner, repo, number) = self.pr();
         sqlx::query(
             "INSERT INTO resolutions (owner, repo, pr_number, thread_id, resolved_through, reopened)
@@ -328,12 +355,14 @@ impl Db {
     pub async fn set_review_body(&self, body: &str) -> Result<()> {
         let (owner, repo, number) = self.pr();
         if body.trim().is_empty() {
-            sqlx::query("DELETE FROM review_bodies WHERE owner = ?1 AND repo = ?2 AND pr_number = ?3")
-                .bind(owner)
-                .bind(repo)
-                .bind(number)
-                .execute(&self.pool)
-                .await?;
+            sqlx::query(
+                "DELETE FROM review_bodies WHERE owner = ?1 AND repo = ?2 AND pr_number = ?3",
+            )
+            .bind(owner)
+            .bind(repo)
+            .bind(number)
+            .execute(&self.pool)
+            .await?;
             return Ok(());
         }
         sqlx::query(
@@ -362,15 +391,28 @@ mod tests {
     use super::*;
 
     fn key(number: u64) -> PrKey {
-        PrKey { owner: "acme".into(), repo: "widgets".into(), number }
+        PrKey {
+            owner: "acme".into(),
+            repo: "widgets".into(),
+            number,
+        }
     }
 
     async fn memory_db() -> Db {
         let options = SqliteConnectOptions::from_str("sqlite::memory:").unwrap();
         // One connection: every connection to `:memory:` would be its own database.
-        let pool = SqlitePoolOptions::new().max_connections(1).connect_with(options).await.unwrap();
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options)
+            .await
+            .unwrap();
         MIGRATOR.run(&pool).await.unwrap();
-        Db { pool, key: key(1), head_oid: "head1".into(), base_oid: "base1".into() }
+        Db {
+            pool,
+            key: key(1),
+            head_oid: "head1".into(),
+            base_oid: "base1".into(),
+        }
     }
 
     fn draft(key: &str, body: &str) -> Draft {
@@ -389,17 +431,32 @@ mod tests {
 
     #[tokio::test]
     async fn empty_state_loads_empty() {
-        assert_eq!(memory_db().await.load().await.unwrap(), SavedState::default());
+        assert_eq!(
+            memory_db().await.load().await.unwrap(),
+            SavedState::default()
+        );
     }
 
     #[tokio::test]
     async fn approvals_are_replaced_per_file() {
         let db = memory_db().await;
-        db.set_file_approvals("a.rs", &["c1".into(), "c3".into()]).await.unwrap();
+        db.set_file_approvals("a.rs", &["c1".into(), "c3".into()])
+            .await
+            .unwrap();
         db.set_file_approvals("b.rs", &["c2".into()]).await.unwrap();
         db.set_file_approvals("a.rs", &["c1".into()]).await.unwrap();
-        let pairs: Vec<_> = db.load().await.unwrap().approvals.into_iter().map(|a| (a.file_path, a.commit_oid)).collect();
-        assert_eq!(pairs, vec![("a.rs".into(), "c1".into()), ("b.rs".into(), "c2".into())]);
+        let pairs: Vec<_> = db
+            .load()
+            .await
+            .unwrap()
+            .approvals
+            .into_iter()
+            .map(|a| (a.file_path, a.commit_oid))
+            .collect();
+        assert_eq!(
+            pairs,
+            vec![("a.rs".into(), "c1".into()), ("b.rs".into(), "c2".into())]
+        );
 
         db.set_file_approvals("a.rs", &[]).await.unwrap();
         assert_eq!(db.load().await.unwrap().approvals.len(), 1);
@@ -415,8 +472,18 @@ mod tests {
         let drafts = db.load().await.unwrap().drafts;
         assert_eq!(drafts.len(), 2);
         assert_eq!(drafts[0].body, "edited");
-        assert_eq!((drafts[0].head_oid.as_str(), drafts[0].base_oid.as_str()), ("head1", "base1"));
-        assert_eq!((drafts[0].side.as_str(), drafts[0].start_line, drafts[0].end_line), ("new", 3, 5));
+        assert_eq!(
+            (drafts[0].head_oid.as_str(), drafts[0].base_oid.as_str()),
+            ("head1", "base1")
+        );
+        assert_eq!(
+            (
+                drafts[0].side.as_str(),
+                drafts[0].start_line,
+                drafts[0].end_line
+            ),
+            ("new", 3, 5)
+        );
 
         db.save_draft(&draft("k1", "  \n")).await.unwrap();
         db.delete_draft("k2").await.unwrap();
@@ -431,7 +498,10 @@ mod tests {
         db.base_oid = "base2".into();
         db.acknowledge_draft("k").await.unwrap();
         let d = &db.load().await.unwrap().drafts[0];
-        assert_eq!((d.head_oid.as_str(), d.base_oid.as_str(), d.body.as_str()), ("head2", "base2", "text"));
+        assert_eq!(
+            (d.head_oid.as_str(), d.base_oid.as_str(), d.body.as_str()),
+            ("head2", "base2", "text")
+        );
     }
 
     #[tokio::test]
@@ -448,7 +518,13 @@ mod tests {
         let s = db.load().await.unwrap();
         assert!(s.drafts.is_empty());
         assert_eq!(s.review_body, "");
-        assert_eq!(s.replies, vec![Reply { thread_id: "conversation".into(), body: "reply 2".into() }]);
+        assert_eq!(
+            s.replies,
+            vec![Reply {
+                thread_id: "conversation".into(),
+                body: "reply 2".into()
+            }]
+        );
         assert_eq!((s.approvals.len(), s.resolutions.len()), (1, 1));
 
         db.clear_submitted(None).await.unwrap();
@@ -479,12 +555,26 @@ mod tests {
         db.set_review_body("LGTM with nits").await.unwrap();
 
         let s = db.load().await.unwrap();
-        assert_eq!(s.replies, vec![Reply { thread_id: "t1".into(), body: "reply 2".into() }]);
+        assert_eq!(
+            s.replies,
+            vec![Reply {
+                thread_id: "t1".into(),
+                body: "reply 2".into()
+            }]
+        );
         assert_eq!(
             s.resolutions,
             vec![
-                Resolution { thread_id: "t1".into(), resolved_through: Some("c9".into()), reopened: true },
-                Resolution { thread_id: "t3".into(), resolved_through: None, reopened: true },
+                Resolution {
+                    thread_id: "t1".into(),
+                    resolved_through: Some("c9".into()),
+                    reopened: true
+                },
+                Resolution {
+                    thread_id: "t3".into(),
+                    resolved_through: None,
+                    reopened: true
+                },
             ]
         );
         assert_eq!(s.review_body, "LGTM with nits");
@@ -499,20 +589,36 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let path = dir.join("nested").join("test.db");
 
-        let one = Db::open(&path, key(1), "h".into(), "b".into()).await.unwrap();
+        let one = Db::open(&path, key(1), "h".into(), "b".into())
+            .await
+            .unwrap();
         one.set_review_body("for PR 1").await.unwrap();
-        one.set_file_approvals("a.rs", &["c1".into()]).await.unwrap();
+        one.set_file_approvals("a.rs", &["c1".into()])
+            .await
+            .unwrap();
 
-        let two = Db::open(&path, key(2), "h".into(), "b".into()).await.unwrap();
+        let two = Db::open(&path, key(2), "h".into(), "b".into())
+            .await
+            .unwrap();
         assert_eq!(two.load().await.unwrap(), SavedState::default());
         two.set_review_body("for PR 2").await.unwrap();
 
-        let other_repo = Db::open(&path, PrKey { repo: "gadgets".into(), ..key(1) }, "h".into(), "b".into())
-            .await
-            .unwrap();
+        let other_repo = Db::open(
+            &path,
+            PrKey {
+                repo: "gadgets".into(),
+                ..key(1)
+            },
+            "h".into(),
+            "b".into(),
+        )
+        .await
+        .unwrap();
         assert_eq!(other_repo.load().await.unwrap(), SavedState::default());
 
-        let again = Db::open(&path, key(1), "h".into(), "b".into()).await.unwrap();
+        let again = Db::open(&path, key(1), "h".into(), "b".into())
+            .await
+            .unwrap();
         let s = again.load().await.unwrap();
         assert_eq!(s.review_body, "for PR 1");
         assert_eq!(s.approvals.len(), 1);

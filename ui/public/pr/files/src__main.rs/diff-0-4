@@ -3,7 +3,7 @@ index 8edbaf2..0856e75 100644
 --- a/src/main.rs
 +++ b/src/main.rs
 @@ -76,7 +76,7 @@ async fn main() -> Result<()> {
- 
+
      let (pr_number_arg, repo_arg, force_fetch, commit_arg, interactive_mode, side_by_side) =
          match &cli.command {
 -            Command::Sync {

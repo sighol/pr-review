@@ -3,7 +3,7 @@ index 8edbaf2..592cd1c 100644
 --- a/src/main.rs
 +++ b/src/main.rs
 @@ -57,12 +57,11 @@ async fn main() -> Result<()> {
- 
+
      if let Command::Threads {
          pr_number,
 -        repo,
@@ -17,7 +17,7 @@ index 8edbaf2..592cd1c 100644
              &repo_path,
              &pool,
 @@ -76,24 +75,22 @@ async fn main() -> Result<()> {
- 
+
      let (pr_number_arg, repo_arg, force_fetch, commit_arg, interactive_mode, side_by_side) =
          match &cli.command {
 -            Command::Sync {
@@ -38,17 +38,17 @@ index 8edbaf2..592cd1c 100644
 +            } => (*pr_number, cli.repo, *fetch, commit, false, false),
              Command::Threads { .. } => unreachable!("handled above"),
          };
- 
+
      let (repo_path, owner, repo_name, pool, pr_number, stored_active) =
 -        resolve_pr(repo_arg, pr_number_arg).await?;
 +        resolve_pr(&repo_arg, pr_number_arg).await?;
- 
+
      let switching_pr = stored_active
          .as_ref()
 @@ -101,25 +98,46 @@ async fn main() -> Result<()> {
          .unwrap_or(true);
      let need_fetch = force_fetch || switching_pr;
- 
+
 -    let (base_oid, mut head_oid, _head_ref_name) = if need_fetch {
 +    let (base_ref_name, mut head_oid, _head_ref_name, pr_title) = if need_fetch {
          eprintln!("Fetching PR #{pr_number} from GitHub...");
@@ -85,7 +85,7 @@ index 8edbaf2..592cd1c 100644
 +        )
      };
 +    let pr_url = format!("https://github.com/{owner}/{repo_name}/pull/{pr_number}");
- 
+
      if let Some(commit) = commit_arg {
          let resolved = git::resolve_commit(&repo_path, commit).await?;
 -        git::ensure_is_descendant(&repo_path, &base_oid, &resolved).await?;
@@ -95,12 +95,12 @@ index 8edbaf2..592cd1c 100644
 +    let base_oid = git::merge_base(&repo_path, &base_ref_name, &head_oid)
 +        .await?
 +        .to_string();
- 
+
      let commits = git::commits_in_range(&repo_path, &base_oid, &head_oid).await?;
      let file_paths = git::changed_files_in_range(&repo_path, &base_oid, &head_oid).await?;
 @@ -129,13 +147,23 @@ async fn main() -> Result<()> {
      let approvals = db::load_approvals(&pool, pr_number).await?;
- 
+
      if !types::has_unapproved_changes(&files, &commits, &approvals) {
 -        print!("{}", grid::render_grid(&files, &commits, &approvals, None));
 +        print!(
@@ -112,7 +112,7 @@ index 8edbaf2..592cd1c 100644
          println!("\n\u{2713} All files approved!");
          return Ok(());
      }
- 
+
      if !interactive_mode {
 -        print!("{}", grid::render_grid(&files, &commits, &approvals, None));
 +        print!(
@@ -123,7 +123,7 @@ index 8edbaf2..592cd1c 100644
 +        );
          return Ok(());
      }
- 
+
 @@ -143,6 +171,8 @@ async fn main() -> Result<()> {
          &repo_path,
          &pool,

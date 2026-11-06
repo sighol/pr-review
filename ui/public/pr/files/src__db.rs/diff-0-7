@@ -3,17 +3,17 @@ index 9f96a29..1efb65a 100644
 --- a/src/db.rs
 +++ b/src/db.rs
 @@ -9,7 +9,7 @@ use crate::types::Approvals;
- 
+
  pub struct ActivePr {
      pub pr_number: u64,
 -    pub base_oid: String,
 +    pub base_ref_name: String,
      pub head_ref_name: String,
  }
- 
+
 @@ -92,14 +92,15 @@ pub async fn record_approvals(
  }
- 
+
  pub async fn load_active_pr(pool: &SqlitePool) -> Result<Option<ActivePr>> {
 -    let row = sqlx::query("SELECT pr_number, base_oid, head_ref_name FROM active_pr WHERE id = 1")
 -        .fetch_optional(pool)
@@ -24,7 +24,7 @@ index 9f96a29..1efb65a 100644
 +            .fetch_optional(pool)
 +            .await
 +            .context("failed to load active PR")?;
- 
+
      Ok(row.map(|row| ActivePr {
          pr_number: row.get::<i64, _>("pr_number") as u64,
 -        base_oid: row.get::<String, _>("base_oid"),
@@ -61,7 +61,7 @@ index 9f96a29..1efb65a 100644
 -        assert_eq!(active.base_oid, "base1");
 +        assert_eq!(active.base_ref_name, "base1");
          assert_eq!(active.head_ref_name, "feature-a");
- 
+
          // Only one active PR is tracked at a time; saving again overwrites it.
 @@ -260,7 +261,7 @@ mod tests {
              .unwrap();
@@ -70,5 +70,5 @@ index 9f96a29..1efb65a 100644
 -        assert_eq!(active.base_oid, "base2");
 +        assert_eq!(active.base_ref_name, "base2");
          assert_eq!(active.head_ref_name, "feature-b");
- 
+
          pool.close().await;

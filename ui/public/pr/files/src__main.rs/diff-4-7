@@ -5,7 +5,7 @@ index 0856e75..63a37fc 100644
 @@ -101,25 +101,38 @@ async fn main() -> Result<()> {
          .unwrap_or(true);
      let need_fetch = force_fetch || switching_pr;
- 
+
 -    let (base_oid, mut head_oid, _head_ref_name) = if need_fetch {
 +    let (base_ref_name, mut head_oid, _head_ref_name) = if need_fetch {
          eprintln!("Fetching PR #{pr_number} from GitHub...");
@@ -34,7 +34,7 @@ index 0856e75..63a37fc 100644
 -        (active.base_oid, head_oid, active.head_ref_name)
 +        (active.base_ref_name, head_oid, active.head_ref_name)
      };
- 
+
      if let Some(commit) = commit_arg {
          let resolved = git::resolve_commit(&repo_path, commit).await?;
 -        git::ensure_is_descendant(&repo_path, &base_oid, &resolved).await?;
@@ -44,6 +44,6 @@ index 0856e75..63a37fc 100644
 +    let base_oid = git::merge_base(&repo_path, &base_ref_name, &head_oid)
 +        .await?
 +        .to_string();
- 
+
      let commits = git::commits_in_range(&repo_path, &base_oid, &head_oid).await?;
      let file_paths = git::changed_files_in_range(&repo_path, &base_oid, &head_oid).await?;

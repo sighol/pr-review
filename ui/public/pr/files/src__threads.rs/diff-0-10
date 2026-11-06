@@ -6,7 +6,7 @@ index 2631426..8e49c8f 100644
 +use std::collections::HashMap;
  use std::io::{self, Write};
  use std::path::Path;
- 
+
  use anyhow::Result;
  use chrono::{DateTime, Utc};
 +use crossterm::cursor::MoveTo;
@@ -15,14 +15,14 @@ index 2631426..8e49c8f 100644
 +use crossterm::terminal::{Clear, ClearType};
  use sqlx::SqlitePool;
 +use termimad::MadSkin;
- 
+
  use crate::db;
  use crate::diff;
 +use crate::git;
  use crate::github::{self, ReviewComment};
  use crate::interactive::read_key;
  use crate::pager::page;
- 
+
  /// A single discussion to walk through: either an inline code-review thread
 -/// (`path`/`diff_hunk` set) or the PR's top-level conversation (both `None`).
 +/// (`path`/`diff_hunk`/`commit_oid` set) or the PR's top-level conversation
@@ -36,7 +36,7 @@ index 2631426..8e49c8f 100644
 +    commit_oid: Option<String>,
      comments: Vec<ReviewComment>,
  }
- 
+
 @@ -51,10 +60,24 @@ pub async fn run(
      pr_number: u64,
      side_by_side: bool,
@@ -46,7 +46,7 @@ index 2631426..8e49c8f 100644
      let review_threads = github::fetch_review_threads(owner, repo, pr_number).await?;
      let conversation_comments =
          github::fetch_pr_conversation_comments(owner, repo, pr_number).await?;
- 
+
 +    eprintln!("Fetching origin (for commit numbers)...");
 +    git::fetch_origin(repo_path).await?;
 +    git::ensure_commits_available(repo_path, &[&pr_refs.base_ref_name, &pr_refs.head_oid]).await?;
@@ -84,7 +84,7 @@ index 2631426..8e49c8f 100644
 @@ -87,32 +115,62 @@ pub async fn run(
          return Ok(());
      }
- 
+
 +    let skin = MadSkin::default();
 +    let mut discussion_index = 0;
      let mut all_resolved = true;
@@ -99,7 +99,7 @@ index 2631426..8e49c8f 100644
 +            rendered.push_str(&hunk);
 +            rendered.push('\n');
          }
- 
+
 -        let header = match (&discussion.path, discussion.line) {
 -            (Some(path), Some(line)) => format!("## {path}:{line}"),
 -            (Some(path), None) => format!("## {path}"),
@@ -144,7 +144,7 @@ index 2631426..8e49c8f 100644
 +            }
          }
 +        rendered.push_str(&skin.term_text(&markdown).to_string());
- 
+
 -        page(&markdown).await?;
 +        let _ = execute!(io::stdout(), Clear(ClearType::All), MoveTo(0, 0));
 +        page(&rendered).await?;
@@ -155,7 +155,7 @@ index 2631426..8e49c8f 100644
 +            unresolved.len()
 +        );
          io::stdout().flush()?;
- 
+
          match read_key().unwrap_or(KeyCode::Enter) {
 @@ -135,3 +193,10 @@ pub async fn run(
      }

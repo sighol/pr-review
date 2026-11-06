@@ -4,7 +4,7 @@ index 0bf73fe..d4aeadc 100644
 +++ b/src/diff.rs
 @@ -43,6 +43,10 @@ pub async fn show_diff_and_prompt(
      io::stdout().flush()?;
- 
+
      let input = read_key().unwrap_or(KeyCode::Enter);
 +    if input == KeyCode::Char('q') {
 +        println!();

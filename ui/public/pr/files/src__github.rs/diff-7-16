@@ -8,7 +8,7 @@ index 40518c7..257563d 100644
      pub head_ref_name: String,
 +    pub title: String,
  }
- 
+
  #[derive(Deserialize)]
 @@ -20,6 +21,7 @@ struct PrViewJson {
      head_ref_oid: String,
@@ -16,7 +16,7 @@ index 40518c7..257563d 100644
      head_ref_name: String,
 +    title: String,
  }
- 
+
  pub async fn fetch_pr_refs(owner: &str, repo: &str, pr_number: u64) -> Result<PrRefs> {
 @@ -31,7 +33,7 @@ pub async fn fetch_pr_refs(owner: &str, repo: &str, pr_number: u64) -> Result<Pr
              "--repo",
@@ -34,7 +34,7 @@ index 40518c7..257563d 100644
 +        title: parsed.title,
      })
  }
- 
+
 @@ -61,6 +64,8 @@ pub struct ReviewComment {
      pub author: String,
      pub created_at: DateTime<Utc>,
@@ -47,7 +47,7 @@ index 40518c7..257563d 100644
 @@ -69,13 +74,14 @@ pub struct ReviewComment {
      pub original_commit_oid: Option<String>,
  }
- 
+
 -/// An inline code-review comment thread, with GitHub's own resolved flag
 -/// intentionally omitted: this tool tracks its own, separate resolution
 -/// state locally (see `db::thread_resolutions`).
@@ -70,7 +70,7 @@ index 40518c7..257563d 100644
 +    is_resolved: bool,
      comments: CommentsConnection,
  }
- 
+
 @@ -137,6 +145,7 @@ struct CommentNode {
      #[serde(rename = "createdAt")]
      created_at: DateTime<Utc>,
@@ -116,7 +116,7 @@ index 40518c7..257563d 100644
      body: String,
 +    url: String,
  }
- 
+
  /// Fetches the PR's top-level conversation comments (the ones with no
 @@ -318,6 +332,7 @@ pub async fn fetch_pr_conversation_comments(
                  .unwrap_or_else(|| "ghost".to_string()),

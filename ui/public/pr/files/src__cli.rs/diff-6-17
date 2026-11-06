@@ -10,7 +10,7 @@ index 4c6ad38..c67f767 100644
 +    #[arg(short = 'C', long, global = true)]
 +    pub repo: Option<PathBuf>,
  }
- 
+
  #[derive(Subcommand)]
 @@ -19,8 +22,6 @@ pub enum Command {
      Diff {
@@ -54,4 +54,3 @@ index 4c6ad38..c67f767 100644
 +        pr_number: u64,
      },
  }
- 

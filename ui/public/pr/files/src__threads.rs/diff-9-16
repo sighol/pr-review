@@ -11,7 +11,7 @@ index d9a4846..303a5c5 100644
 +    github_resolved: Option<bool>,
      comments: Vec<ReviewComment>,
  }
- 
+
 @@ -89,6 +92,7 @@ pub async fn run(
                  .comments
                  .first()
@@ -31,7 +31,7 @@ index d9a4846..303a5c5 100644
 @@ -148,18 +153,36 @@ pub async fn run(
              None => rendered.push_str(&skin.term_text("## Conversation\n").to_string()),
          }
- 
+
 +        let resolved_commit = resolutions.get(&discussion.id);
 +
          let mut markdown = String::new();
@@ -52,7 +52,7 @@ index d9a4846..303a5c5 100644
 +            }
          }
          rendered.push_str(&skin.term_text(&markdown).to_string());
- 
+
          let _ = execute!(io::stdout(), Clear(ClearType::All), MoveTo(0, 0));
          page(&rendered).await?;
          println!();

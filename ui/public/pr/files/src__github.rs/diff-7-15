@@ -8,7 +8,7 @@ index 40518c7..c0d25e0 100644
      pub head_ref_name: String,
 +    pub title: String,
  }
- 
+
  #[derive(Deserialize)]
 @@ -20,6 +21,7 @@ struct PrViewJson {
      head_ref_oid: String,
@@ -16,7 +16,7 @@ index 40518c7..c0d25e0 100644
      head_ref_name: String,
 +    title: String,
  }
- 
+
  pub async fn fetch_pr_refs(owner: &str, repo: &str, pr_number: u64) -> Result<PrRefs> {
 @@ -31,7 +33,7 @@ pub async fn fetch_pr_refs(owner: &str, repo: &str, pr_number: u64) -> Result<Pr
              "--repo",
@@ -34,7 +34,7 @@ index 40518c7..c0d25e0 100644
 +        title: parsed.title,
      })
  }
- 
+
 @@ -61,6 +64,8 @@ pub struct ReviewComment {
      pub author: String,
      pub created_at: DateTime<Utc>,
@@ -74,7 +74,7 @@ index 40518c7..c0d25e0 100644
      body: String,
 +    url: String,
  }
- 
+
  /// Fetches the PR's top-level conversation comments (the ones with no
 @@ -318,6 +327,7 @@ pub async fn fetch_pr_conversation_comments(
                  .unwrap_or_else(|| "ghost".to_string()),

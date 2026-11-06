@@ -10,7 +10,7 @@ index 67a72a1..7c2ddc5 100644
 +    #[arg(short = 'C', long, global = true)]
 +    pub repo: Option<PathBuf>,
  }
- 
+
  #[derive(Subcommand)]
 @@ -15,11 +18,10 @@ pub enum Command {
      /// Display the grid and enter interactive mode. Reuses the last-reviewed

@@ -6,16 +6,16 @@ index e0fbc71..d9a4846 100644
 +use std::collections::HashMap;
  use std::io::{self, Write};
  use std::path::Path;
- 
+
 @@ -12,17 +13,21 @@ use termimad::MadSkin;
- 
+
  use crate::db;
  use crate::diff;
 +use crate::git;
  use crate::github::{self, ReviewComment};
  use crate::interactive::read_key;
  use crate::pager::page;
- 
+
  /// A single discussion to walk through: either an inline code-review thread
 -/// (`path`/`diff_hunk` set) or the PR's top-level conversation (both `None`).
 +/// (`path`/`diff_hunk`/`commit_oid` set) or the PR's top-level conversation
@@ -29,7 +29,7 @@ index e0fbc71..d9a4846 100644
 +    commit_oid: Option<String>,
      comments: Vec<ReviewComment>,
  }
- 
+
 @@ -55,10 +60,24 @@ pub async fn run(
      pr_number: u64,
      side_by_side: bool,
@@ -39,7 +39,7 @@ index e0fbc71..d9a4846 100644
      let review_threads = github::fetch_review_threads(owner, repo, pr_number).await?;
      let conversation_comments =
          github::fetch_pr_conversation_comments(owner, repo, pr_number).await?;
- 
+
 +    eprintln!("Fetching origin (for commit numbers)...");
 +    git::fetch_origin(repo_path).await?;
 +    git::ensure_commits_available(repo_path, &[&pr_refs.base_ref_name, &pr_refs.head_oid]).await?;
@@ -76,7 +76,7 @@ index e0fbc71..d9a4846 100644
      }
 @@ -92,8 +116,10 @@ pub async fn run(
      }
- 
+
      let skin = MadSkin::default();
 +    let mut discussion_index = 0;
      let mut all_resolved = true;
@@ -88,7 +88,7 @@ index e0fbc71..d9a4846 100644
 @@ -101,14 +127,28 @@ pub async fn run(
              rendered.push('\n');
          }
- 
+
 +        match &discussion.path {
 +            Some(path) => {
 +                let location = match discussion.line {
@@ -131,7 +131,7 @@ index e0fbc71..d9a4846 100644
 +            unresolved.len()
 +        );
          io::stdout().flush()?;
- 
+
          match read_key().unwrap_or(KeyCode::Enter) {
 @@ -143,3 +186,10 @@ pub async fn run(
      }

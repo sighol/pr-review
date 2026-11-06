@@ -11,7 +11,7 @@ index 854d62d..40518c7 100644
      pub head_oid: String,
      pub head_ref_name: String,
  }
- 
+
  #[derive(Deserialize)]
  struct PrViewJson {
 -    #[serde(rename = "baseRefOid")]
@@ -32,7 +32,7 @@ index 854d62d..40518c7 100644
          .await
 @@ -48,7 +48,7 @@ pub async fn fetch_pr_refs(owner: &str, repo: &str, pr_number: u64) -> Result<Pr
          .context("failed to parse `gh pr view` output as JSON")?;
- 
+
      Ok(PrRefs {
 -        base_oid: parsed.base_ref_oid,
 +        base_ref_name: format!("origin/{}", parsed.base_ref_name),
@@ -47,7 +47,7 @@ index 854d62d..40518c7 100644
 +    /// top-level conversation comments.
 +    pub original_commit_oid: Option<String>,
  }
- 
+
  /// An inline code-review comment thread, with GitHub's own resolved flag
 @@ -136,6 +139,13 @@ struct CommentNode {
      body: String,
@@ -61,7 +61,7 @@ index 854d62d..40518c7 100644
 +struct OriginalCommit {
 +    oid: String,
  }
- 
+
  #[derive(Deserialize)]
 @@ -160,6 +170,7 @@ query($owner: String!, $repo: String!, $number: Int!, $after: String) {
                createdAt

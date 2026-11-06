@@ -38,7 +38,8 @@ fn ghost_if_none(author: Option<AuthorJson>) -> String {
 }
 
 fn parse_pr_view(json: &[u8]) -> Result<PrInfo> {
-    let v: PrViewJson = serde_json::from_slice(json).context("unexpected output from `gh pr view`")?;
+    let v: PrViewJson =
+        serde_json::from_slice(json).context("unexpected output from `gh pr view`")?;
     Ok(PrInfo {
         meta: PrMeta {
             number: v.number,
@@ -82,7 +83,14 @@ pub async fn graphql(query: &str, variables: serde_json::Value) -> Result<serde_
 
     let body = serde_json::json!({ "query": query, "variables": variables });
     let mut child = Command::new("gh")
-        .args(["api", "graphql", "-H", "Content-Type: application/json", "--input", "-"])
+        .args([
+            "api",
+            "graphql",
+            "-H",
+            "Content-Type: application/json",
+            "--input",
+            "-",
+        ])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -104,7 +112,10 @@ pub async fn graphql(query: &str, variables: serde_json::Value) -> Result<serde_
             .unwrap_or_default();
         bail!("GitHub rejected the request: {}", messages.join("; "));
     }
-    response.get("data").cloned().context("GitHub's response had no data")
+    response
+        .get("data")
+        .cloned()
+        .context("GitHub's response had no data")
 }
 
 /// One comment, in a review thread or in the PR conversation.
@@ -239,9 +250,14 @@ struct GqlCommit {
 /// Parses one page of `reviewThreads`; returns the threads and the cursor of the next page.
 /// Comments in the viewer's own unsubmitted review are dropped, and so are threads left empty.
 fn parse_threads_page(json: &[u8]) -> Result<(Vec<RawThread>, Option<String>)> {
-    let page: GqlEnvelope = serde_json::from_slice(json).context("unexpected output from `gh api graphql`")?;
+    let page: GqlEnvelope =
+        serde_json::from_slice(json).context("unexpected output from `gh api graphql`")?;
     let threads = page.data.repository.pull_request.review_threads;
-    let next = threads.page_info.has_next_page.then_some(threads.page_info.end_cursor).flatten();
+    let next = threads
+        .page_info
+        .has_next_page
+        .then_some(threads.page_info.end_cursor)
+        .flatten();
     let parsed = threads
         .nodes
         .into_iter()
@@ -330,9 +346,9 @@ struct ConversationCommentJson {
 }
 
 fn parse_conversation(json: &[u8]) -> Result<Vec<RawComment>> {
-    let v: ConversationJson = serde_json::from_slice(json).context("unexpected output from `gh pr view`")?;
-    Ok(v
-        .comments
+    let v: ConversationJson =
+        serde_json::from_slice(json).context("unexpected output from `gh pr view`")?;
+    Ok(v.comments
         .into_iter()
         .map(|c| RawComment {
             id: c.id,
@@ -369,7 +385,11 @@ pub async fn fetch_conversation(owner: &str, repo: &str, number: u64) -> Result<
 }
 
 /// Review threads and conversation comments.
-pub async fn fetch_discussion(owner: &str, repo: &str, number: u64) -> Result<(Vec<RawThread>, Vec<RawComment>)> {
+pub async fn fetch_discussion(
+    owner: &str,
+    repo: &str,
+    number: u64,
+) -> Result<(Vec<RawThread>, Vec<RawComment>)> {
     tokio::try_join!(
         fetch_review_threads(owner, repo, number),
         fetch_conversation(owner, repo, number)
@@ -398,10 +418,20 @@ mod tests {
             ]}}}}}"#;
         let (threads, next) = parse_threads_page(json).unwrap();
         assert_eq!(next.as_deref(), Some("CUR"));
-        assert_eq!(threads.len(), 1, "a thread with only pending comments is dropped");
+        assert_eq!(
+            threads.len(),
+            1,
+            "a thread with only pending comments is dropped"
+        );
         let t = &threads[0];
-        assert_eq!((t.id.as_str(), t.path.as_str(), t.line, t.original_line), ("PRRT_1", "src/a.rs", Some(12), Some(10)));
-        assert_eq!((t.diff_side.as_str(), t.is_outdated, t.is_resolved), ("RIGHT", false, true));
+        assert_eq!(
+            (t.id.as_str(), t.path.as_str(), t.line, t.original_line),
+            ("PRRT_1", "src/a.rs", Some(12), Some(10))
+        );
+        assert_eq!(
+            (t.diff_side.as_str(), t.is_outdated, t.is_resolved),
+            ("RIGHT", false, true)
+        );
         assert_eq!(t.comments.len(), 2);
         assert_eq!(t.comments[0].original_commit_oid.as_deref(), Some("abc"));
         assert_eq!(t.comments[1].author, "ghost");

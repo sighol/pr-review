@@ -5,7 +5,7 @@ index c0d25e0..257563d 100644
 @@ -74,13 +74,14 @@ pub struct ReviewComment {
      pub original_commit_oid: Option<String>,
  }
- 
+
 -/// An inline code-review comment thread, with GitHub's own resolved flag
 -/// intentionally omitted: this tool tracks its own, separate resolution
 -/// state locally (see `db::thread_resolutions`).
@@ -28,7 +28,7 @@ index c0d25e0..257563d 100644
 +    is_resolved: bool,
      comments: CommentsConnection,
  }
- 
+
 @@ -169,6 +172,7 @@ query($owner: String!, $repo: String!, $number: Int!, $after: String) {
            id
            path
