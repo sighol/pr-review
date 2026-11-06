@@ -1,0 +1,240 @@
+:root {
+  color-scheme: dark;
+  --bg: #0d1117;
+  --bg-subtle: #161b22;
+  --border: #30363d;
+  --fg: #e6edf3;
+  --muted: #7d8590;
+  --del-line: rgba(248, 81, 73, 0.13);
+  --del-word: rgba(248, 81, 73, 0.45);
+  --del-gutter: rgba(248, 81, 73, 0.25);
+  --add-line: rgba(46, 160, 67, 0.15);
+  --add-word: rgba(46, 160, 67, 0.45);
+  --add-gutter: rgba(46, 160, 67, 0.3);
+  --select: rgba(56, 139, 253, 0.35);
+  --accent: #2f81f7;
+  --mono: ui-monospace, "JetBrains Mono", "Fira Code", Menlo, Consolas, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 14px/1.4 system-ui, sans-serif;
+}
+
+button,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+.toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--bg-subtle);
+  border-bottom: 1px solid var(--border);
+}
+
+.toolbar select,
+.toolbar button {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.toolbar .path {
+  font-family: var(--mono);
+  color: var(--muted);
+}
+
+.toolbar .hint {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.loading {
+  padding: 24px;
+  color: var(--muted);
+}
+
+.diff {
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr) 56px minmax(0, 1fr);
+  content-visibility: auto;
+  contain-intrinsic-size: auto 20px;
+}
+
+.gutter {
+  padding: 0 10px 0 4px;
+  text-align: right;
+  color: var(--muted);
+  user-select: none;
+  border-left: 1px solid var(--border);
+}
+
+.code {
+  padding: 0 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+.code mark {
+  background: transparent;
+  border-radius: 3px;
+}
+
+.noeol {
+  color: var(--muted);
+}
+
+.del.gutter {
+  background: var(--del-gutter);
+}
+.del.code {
+  background: var(--del-line);
+}
+.del.code mark {
+  background: var(--del-word);
+}
+.add.gutter {
+  background: var(--add-gutter);
+}
+.add.code {
+  background: var(--add-line);
+}
+.add.code mark {
+  background: var(--add-word);
+}
+
+.empty.gutter,
+.empty.code {
+  background: repeating-linear-gradient(135deg, transparent 0 4px, rgba(125, 133, 144, 0.1) 4px 5px);
+}
+
+.gutter.clickable {
+  cursor: pointer;
+  color: var(--fg);
+}
+.gutter.clickable:hover {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.gutter.selected,
+.code.selected {
+  background: var(--select);
+}
+
+.diff[data-select-side="old"] .code.new,
+.diff[data-select-side="new"] .code.old {
+  user-select: none;
+}
+
+.gap {
+  background: var(--bg-subtle);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.gap button {
+  width: 100%;
+  background: none;
+  border: 0;
+  padding: 2px 12px;
+  text-align: left;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+.gap button:hover {
+  background: rgba(56, 139, 253, 0.1);
+}
+
+.attached {
+  padding: 8px 12px 8px 60px;
+  background: var(--bg-subtle);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  font-family: system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.comment {
+  max-width: 820px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  padding: 8px 12px;
+}
+.comment.draft {
+  border-color: var(--accent);
+}
+.comment.resolved {
+  opacity: 0.8;
+}
+.comment-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+.thread-comment + .thread-comment {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.body {
+  white-space: pre-wrap;
+}
+
+.comment textarea {
+  display: block;
+  width: 100%;
+  min-height: 64px;
+  resize: none;
+  overflow: hidden;
+  background: var(--bg);
+  border: 0;
+  outline: none;
+  font-family: var(--mono);
+  font-size: 13px;
+}
+.comment .reply-box {
+  margin-top: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+.link {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: inherit;
+}
+.reply {
+  margin-top: 8px;
+}
