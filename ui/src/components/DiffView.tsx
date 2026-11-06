@@ -6,7 +6,6 @@ import {
   isChanged,
   parseUnifiedDiff,
   rangeFromRows,
-  rangeKey,
   segmentsFor,
   suggestionFor,
   textToLines,
@@ -16,16 +15,13 @@ import {
   type Side,
 } from "../lib/diff";
 import { tokenize } from "../lib/highlight";
-import { FAKE_THREADS, lastCommentId, type FakeThread, type Resolution } from "../lib/threads";
-import { CommentBox, type Draft } from "./CommentBox";
+import type { FakeThread } from "../lib/threads";
+import { useStore, type Draft, type FileData } from "../store";
+import { CommentBox } from "./CommentBox";
 import { ThreadBox } from "./ThreadBox";
 
 interface Props {
-  fixtureName: string;
-  path: string;
-  oldText: string;
-  newText: string;
-  diffText: string;
+  file: FileData;
   wholeFile: boolean;
 }
 
@@ -37,7 +33,9 @@ interface Selection {
   hi: number;
 }
 
-export function DiffView({ fixtureName, path, oldText, newText, diffText, wholeFile }: Props) {
+export function DiffView({ file, wholeFile }: Props) {
+  const { threads, drafts, jump, clearJump, createDraft: storeCreateDraft } = useStore();
+  const { oldText, newText, diffText, path } = file;
   const oldLines = useMemo(() => textToLines(oldText), [oldText]);
   const newLines = useMemo(() => textToLines(newText), [newText]);
   const hunks = useMemo(() => parseUnifiedDiff(diffText), [diffText]);
@@ -58,23 +56,6 @@ export function DiffView({ fixtureName, path, oldText, newText, diffText, wholeF
     };
   }, [oldText, newText, path]);
 
-  const [resolutions, setResolutions] = useState<Map<string, Resolution>>(
-    () =>
-      new Map(
-        (FAKE_THREADS[fixtureName] ?? []).flatMap((t) =>
-          t.resolvedThrough ? [[t.id, { through: t.resolvedThrough, reopened: false }] as const] : [],
-        ),
-      ),
-  );
-  const resolveThread = useCallback((t: FakeThread) => {
-    setResolutions((prev) => new Map(prev).set(t.id, { through: lastCommentId(t), reopened: false }));
-  }, []);
-  const reopenThread = useCallback((t: FakeThread) => {
-    setResolutions((prev) => new Map(prev).set(t.id, { through: prev.get(t.id)?.through ?? null, reopened: true }));
-  }, []);
-
-  const [drafts, setDrafts] = useState<Map<string, Draft>>(new Map());
-  const [focus, setFocus] = useState<{ key: string; tick: number } | null>(null);
   const [sel, setSel] = useState<Selection | null>(null);
   const dragRef = useRef<{ side: Side; anchor: number } | null>(null);
   const selRef = useRef<Selection | null>(null);
@@ -93,16 +74,8 @@ export function DiffView({ fixtureName, path, oldText, newText, diffText, wholeF
   }, [rows]);
 
   const createDraft = useCallback(
-    (range: LineRange) => {
-      const key = rangeKey(range);
-      setDrafts((prev) => {
-        if (prev.has(key)) return prev;
-        const initial = suggestionFor(range, newLines);
-        return new Map(prev).set(key, { key, range, text: initial, initial });
-      });
-      setFocus((f) => ({ key, tick: (f?.tick ?? 0) + 1 }));
-    },
-    [newLines],
+    (range: LineRange) => storeCreateDraft(file.name, range, suggestionFor(range, newLines)),
+    [storeCreateDraft, file.name, newLines],
   );
 
   useEffect(() => {
@@ -149,6 +122,39 @@ export function DiffView({ fixtureName, path, oldText, newText, diffText, wholeF
     setExpandedGaps((prev) => new Set(prev).add(id));
   }, []);
 
+  useEffect(() => {
+    if (!jump || jump.file !== file.name) return;
+    const ri = rowIndexByLine.get(`${jump.side}:${jump.line}`);
+    if (ri === undefined) {
+      const hidingGap = rows.find(
+        (r) =>
+          r.type === "gap" &&
+          (jump.side === "old"
+            ? jump.line >= r.oldStart && jump.line < r.oldStart + r.count
+            : jump.line >= r.newStart && jump.line < r.newStart + r.count),
+      );
+      if (hidingGap) {
+        expandGap(hidingGap.id);
+        return;
+      }
+      clearJump();
+      return;
+    }
+    clearJump();
+    const scroll = () => {
+      const el = containerRef.current?.querySelector<HTMLElement>(`.row[data-ri="${ri}"]`);
+      if (!el) return;
+      el.scrollIntoView({ block: "center" });
+      return el;
+    };
+    requestAnimationFrame(() => {
+      const el = scroll();
+      el?.classList.add("flash");
+      setTimeout(scroll, 150);
+      setTimeout(() => el?.classList.remove("flash"), 1800);
+    });
+  }, [jump, rows, rowIndexByLine, file.name, expandGap, clearJump]);
+
   const onCodeDown = useCallback((e: React.PointerEvent) => {
     const code = (e.target as HTMLElement).closest<HTMLElement>("[data-code-side]");
     if (code && containerRef.current) containerRef.current.dataset.selectSide = code.dataset.codeSide;
@@ -156,36 +162,23 @@ export function DiffView({ fixtureName, path, oldText, newText, diffText, wholeF
 
   const threadsByRow = useMemo(() => {
     const m = new Map<number, FakeThread[]>();
-    for (const t of FAKE_THREADS[fixtureName] ?? []) {
+    for (const t of threads) {
+      if (t.file !== file.name) continue;
       const ri = rowIndexByLine.get(`${t.side}:${t.line}`);
       if (ri !== undefined) m.set(ri, [...(m.get(ri) ?? []), t]);
     }
     return m;
-  }, [fixtureName, rowIndexByLine]);
+  }, [threads, file.name, rowIndexByLine]);
 
   const draftsByRow = useMemo(() => {
     const m = new Map<number, Draft[]>();
     for (const d of drafts.values()) {
+      if (d.file !== file.name) continue;
       const ri = rowIndexByLine.get(`${d.range.side}:${d.range.end}`);
       if (ri !== undefined) m.set(ri, [...(m.get(ri) ?? []), d]);
     }
     return m;
-  }, [drafts, rowIndexByLine]);
-
-  const patchDraft = useCallback((key: string, text: string) => {
-    setDrafts((prev) => {
-      const d = prev.get(key);
-      return d ? new Map(prev).set(key, { ...d, text }) : prev;
-    });
-  }, []);
-  const removeDraft = useCallback((key: string) => {
-    setDrafts((prev) => {
-      if (!prev.has(key)) return prev;
-      const next = new Map(prev);
-      next.delete(key);
-      return next;
-    });
-  }, []);
+  }, [drafts, file.name, rowIndexByLine]);
 
   return (
     <div className="diff" ref={containerRef} onPointerDown={onCodeDown}>
@@ -207,17 +200,12 @@ export function DiffView({ fixtureName, path, oldText, newText, diffText, wholeF
             )}
             {threadsByRow.get(i)?.map((t) => (
               <div className="attached" data-ri={i} key={t.id}>
-                <ThreadBox thread={t} resolution={resolutions.get(t.id)} onResolve={resolveThread} onReopen={reopenThread} />
+                <ThreadBox thread={t} />
               </div>
             ))}
             {draftsByRow.get(i)?.map((d) => (
               <div className="attached" data-ri={i} key={d.key}>
-                <CommentBox
-                  draft={d}
-                  focusTick={focus?.key === d.key ? focus.tick : 0}
-                  onChange={patchDraft}
-                  onDiscard={removeDraft}
-                />
+                <CommentBox draft={d} />
               </div>
             ))}
           </Fragment>

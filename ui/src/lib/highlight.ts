@@ -1,4 +1,4 @@
-import { createHighlighter, type Highlighter, type ThemedToken } from "shiki";
+import { bundledLanguages, createHighlighter, type Highlighter, type ThemedToken } from "shiki";
 
 export const THEME = "github-dark-default";
 
@@ -27,8 +27,13 @@ export function langFor(path: string): string | null {
 }
 
 export async function tokenize(text: string, path: string): Promise<ThemedToken[][] | null> {
-  const lang = langFor(path);
+  return tokenizeLang(text, langFor(path));
+}
+
+export async function tokenizeLang(text: string, lang: string | null | undefined): Promise<ThemedToken[][] | null> {
   if (!lang) return null;
+  lang = LANG_BY_EXT[lang] ?? lang;
+  if (!(lang in bundledLanguages)) return null;
   const hl = await getHighlighter();
   if (!hl.getLoadedLanguages().includes(lang)) await hl.loadLanguage(lang as never);
   return hl.codeToTokensBase(text, { lang: lang as never, theme: THEME });

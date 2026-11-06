@@ -1,5 +1,9 @@
-import { useEffect, useState } from "react";
-import { DiffView } from "./components/DiffView";
+import { useEffect, useState, type ReactNode } from "react";
+import { PR, isResolved, newCount } from "./lib/threads";
+import { StoreProvider, useStore, type FileData, type Tab } from "./store";
+import { DiffTab } from "./tabs/DiffTab";
+import { ReviewTab, useReviewPayload } from "./tabs/ReviewTab";
+import { SummaryTab } from "./tabs/SummaryTab";
 
 interface ManifestEntry {
   name: string;
@@ -7,77 +11,90 @@ interface ManifestEntry {
   path: string;
 }
 
-interface Loaded {
-  name: string;
-  path: string;
-  oldText: string;
-  newText: string;
-  diffText: string;
-}
-
 const fetchText = (url: string) => fetch(url).then((r) => r.text());
 
-export function App() {
-  const [manifest, setManifest] = useState<ManifestEntry[]>([]);
-  const [current, setCurrent] = useState<string>("");
-  const [loaded, setLoaded] = useState<Loaded | null>(null);
-  const [wholeFile, setWholeFile] = useState(false);
+async function loadAll(): Promise<FileData[]> {
+  const manifest: ManifestEntry[] = await fetch("/fixtures/manifest.json").then((r) => r.json());
+  return Promise.all(
+    manifest.map(async (m) => {
+      const [oldText, newText, diffText] = await Promise.all([
+        fetchText(`/fixtures/${m.name}/old`),
+        fetchText(`/fixtures/${m.name}/new`),
+        fetchText(`/fixtures/${m.name}/diff`),
+      ]);
+      return { ...m, oldText, newText, diffText };
+    }),
+  );
+}
 
-  useEffect(() => {
-    fetch("/fixtures/manifest.json")
-      .then((r) => r.json())
-      .then((m: ManifestEntry[]) => {
-        setManifest(m);
-        setCurrent(new URLSearchParams(location.search).get("fixture") ?? m[0]?.name ?? "");
-      });
-  }, []);
+function Panel({ id, children }: { id: Tab; children: ReactNode }) {
+  const { tab } = useStore();
+  return (
+    <section className={`panel${tab === id ? " active" : ""}`} aria-hidden={tab !== id}>
+      {children}
+    </section>
+  );
+}
 
-  useEffect(() => {
-    const entry = manifest.find((m) => m.name === current);
-    if (!entry) return;
-    let cancelled = false;
-    setLoaded(null);
-    Promise.all([
-      fetchText(`/fixtures/${entry.name}/old`),
-      fetchText(`/fixtures/${entry.name}/new`),
-      fetchText(`/fixtures/${entry.name}/diff`),
-    ]).then(([oldText, newText, diffText]) => {
-      if (!cancelled) setLoaded({ name: entry.name, path: entry.path, oldText, newText, diffText });
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [manifest, current]);
+function Header() {
+  const { tab, setTab, threads, resolutions } = useStore();
+  const payload = useReviewPayload();
+  const pending = payload.comments.length + payload.replies.length;
+  const withNew = threads.filter((t) => {
+    const r = resolutions.get(t.id);
+    return !isResolved(t, r) && newCount(t, r) > 0;
+  }).length;
+
+  const tabs: { id: Tab; label: string; badge?: ReactNode }[] = [
+    { id: "summary", label: "Summary", badge: withNew > 0 ? <span className="badge-new">{withNew} new</span> : null },
+    { id: "diff", label: "Diff" },
+    { id: "review", label: "Review", badge: pending > 0 ? <span className="badge-count">{pending}</span> : null },
+  ];
 
   return (
-    <div className="app">
-      <header className="toolbar">
-        <select value={current} onChange={(e) => setCurrent(e.target.value)}>
-          {manifest.map((m) => (
-            <option key={m.name} value={m.name}>
-              {m.label}
-            </option>
-          ))}
-        </select>
-        <span className="path">{loaded?.path}</span>
-        <button onClick={() => setWholeFile((w) => !w)}>{wholeFile ? "Show changed hunks" : "Show whole file"}</button>
-        <span className="hint">Drag a line number on a changed line to comment</span>
-      </header>
-      <main>
-        {loaded ? (
-          <DiffView
-            key={loaded.name}
-            fixtureName={loaded.name}
-            path={loaded.path}
-            oldText={loaded.oldText}
-            newText={loaded.newText}
-            diffText={loaded.diffText}
-            wholeFile={wholeFile}
-          />
-        ) : (
-          <div className="loading">Loading…</div>
-        )}
-      </main>
-    </div>
+    <header className="app-header">
+      <div className="pr-title">
+        <span className="pr-number">#{PR.number}</span> {PR.title}
+      </div>
+      <nav className="tabs">
+        {tabs.map((t) => (
+          <button key={t.id} className={`tab${tab === t.id ? " active" : ""}`} onClick={() => setTab(t.id)}>
+            {t.label}
+            {t.badge}
+          </button>
+        ))}
+      </nav>
+      <button className="action primary finish" onClick={() => setTab("review")}>
+        Finish review{pending > 0 ? ` · ${pending}` : ""}
+      </button>
+    </header>
+  );
+}
+
+export function App() {
+  const [files, setFiles] = useState<FileData[] | null>(null);
+  useEffect(() => {
+    loadAll().then(setFiles);
+  }, []);
+
+  if (!files) return <div className="loading">Loading…</div>;
+
+  return (
+    <StoreProvider files={files}>
+      <div className="app">
+        <Header />
+        <div className="panels">
+          <Panel id="summary">
+            <SummaryTab />
+          </Panel>
+          <Panel id="diff">
+            <DiffTab />
+          </Panel>
+          <Panel id="review">
+            <ReviewTab />
+          </Panel>
+        </div>
+      </div>
+    </StoreProvider>
   );
 }
