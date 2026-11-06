@@ -1,10 +1,11 @@
 import type { ThemedToken } from "shiki";
-import { useEffect, useState, type ComponentProps } from "react";
+import { useEffect, useMemo, useState, type ComponentProps } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { segmentsFor, wordRanges, type Range } from "../lib/diff";
 import { tokenizeLang } from "../lib/highlight";
 
-function Highlighted({ code, lang }: { code: string; lang: string | null }) {
+function useTokens(code: string, lang: string | null) {
   const [tokens, setTokens] = useState<ThemedToken[][] | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -13,11 +14,14 @@ function Highlighted({ code, lang }: { code: string; lang: string | null }) {
       cancelled = true;
     };
   }, [code, lang]);
+  return tokens;
+}
 
-  const lines = code.split("\n");
+function Highlighted({ code, lang }: { code: string; lang: string | null }) {
+  const tokens = useTokens(code, lang);
   return (
     <>
-      {lines.map((line, i) => (
+      {code.split("\n").map((line, i) => (
         <div className="md-code-line" key={i}>
           {tokens?.[i]
             ? tokens[i].map((t, j) => (
@@ -33,7 +37,70 @@ function Highlighted({ code, lang }: { code: string; lang: string | null }) {
   );
 }
 
-export function Markdown({ text, fileLang }: { text: string; fileLang?: string | null }) {
+function DiffLine({
+  sign,
+  text,
+  tokens,
+  ranges,
+}: {
+  sign: "-" | "+";
+  text: string;
+  tokens: ThemedToken[] | undefined;
+  ranges: Range[] | undefined;
+}) {
+  return (
+    <div className={`md-diff-line ${sign === "-" ? "del" : "add"}`}>
+      <span className="md-diff-sign">{sign}</span>
+      <span className="md-diff-text">
+        {segmentsFor(tokens, text, ranges).map((s, i) =>
+          s.changed ? (
+            <mark key={i} style={{ color: s.color }}>
+              {s.text}
+            </mark>
+          ) : (
+            <span key={i} style={{ color: s.color }}>
+              {s.text}
+            </span>
+          ),
+        )}
+        {text === "" && "​"}
+      </span>
+    </div>
+  );
+}
+
+/** GitHub-style suggested change: replaced lines in red, suggested lines in green. */
+function SuggestionDiff({ base, code, lang }: { base: string[]; code: string; lang: string | null }) {
+  const suggested = code.split("\n");
+  const baseTokens = useTokens(base.join("\n"), lang);
+  const newTokens = useTokens(code, lang);
+  const ranges = useMemo(
+    () =>
+      suggested.map((line, i) => (i < base.length ? wordRanges(base[i], line) : null)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [base, code],
+  );
+
+  return (
+    <div className="md-code md-diff">
+      {base.map((line, i) => (
+        <DiffLine key={`o${i}`} sign="-" text={line} tokens={baseTokens?.[i]} ranges={ranges[i]?.old} />
+      ))}
+      {suggested.map((line, i) => (
+        <DiffLine key={`n${i}`} sign="+" text={line} tokens={newTokens?.[i]} ranges={ranges[i]?.new} />
+      ))}
+    </div>
+  );
+}
+
+interface Props {
+  text: string;
+  fileLang?: string | null;
+  /** The current lines a suggestion block in this text would replace. */
+  replaces?: string[] | null;
+}
+
+export function Markdown({ text, fileLang, replaces }: Props) {
   return (
     <div className="markdown">
       <ReactMarkdown
@@ -50,9 +117,13 @@ export function Markdown({ text, fileLang }: { text: string; fileLang?: string |
               return (
                 <div className="md-suggestion">
                   <div className="md-suggestion-head">Suggested change</div>
-                  <div className="md-code">
-                    <Highlighted code={code} lang={fileLang ?? null} />
-                  </div>
+                  {replaces && replaces.length > 0 ? (
+                    <SuggestionDiff base={replaces} code={code} lang={fileLang ?? null} />
+                  ) : (
+                    <div className="md-code add-only">
+                      <Highlighted code={code} lang={fileLang ?? null} />
+                    </div>
+                  )}
                 </div>
               );
             }

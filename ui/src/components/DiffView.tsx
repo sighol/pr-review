@@ -7,7 +7,6 @@ import {
   parseUnifiedDiff,
   rangeFromRows,
   segmentsFor,
-  suggestionFor,
   textToLines,
   type Cell,
   type LineRange,
@@ -74,8 +73,8 @@ export function DiffView({ file, wholeFile }: Props) {
   }, [rows]);
 
   const createDraft = useCallback(
-    (range: LineRange) => storeCreateDraft(file.name, range, suggestionFor(range, newLines)),
-    [storeCreateDraft, file.name, newLines],
+    (range: LineRange) => storeCreateDraft(file.name, range),
+    [storeCreateDraft, file.name],
   );
 
   useEffect(() => {
