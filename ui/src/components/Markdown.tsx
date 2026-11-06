@@ -4,6 +4,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { segmentsFor, wordRanges, type Range } from "../lib/diff";
 import { tokenizeLang } from "../lib/highlight";
+import { ExternalLink } from "./ExternalLink";
 
 function useTokens(code: string, lang: string | null) {
   const [tokens, setTokens] = useState<ThemedToken[][] | null>(null);
@@ -106,6 +107,7 @@ export function Markdown({ text, fileLang, replaces }: Props) {
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
+          a: ({ href, children }) => <ExternalLink href={href}>{children}</ExternalLink>,
           pre: ({ children }) => <>{children}</>,
           code: ({ className, children }: ComponentProps<"code">) => {
             const raw = String(children ?? "");

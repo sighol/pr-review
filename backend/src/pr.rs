@@ -26,9 +26,15 @@ pub async fn open_pr(cwd: &Path, number: u64) -> Result<OpenedPr> {
 
     info!("reading PR #{number} from {owner}/{name}");
     let info = github::pr_view(&owner, &name, number).await?;
-    info!("PR #{number}: \"{}\" (base branch {})", info.meta.title, info.base_ref_name);
+    info!(
+        "PR #{number}: \"{}\" (base branch {})",
+        info.meta.title, info.base_ref_name
+    );
 
-    info!("fetching PR #{number}, {} and its discussion", info.base_ref_name);
+    info!(
+        "fetching PR #{number}, {} and its discussion",
+        info.base_ref_name
+    );
     let (range, (raw_threads, conversation)) = tokio::try_join!(
         git::fetch_pr(&repo, number, &info.base_ref_name),
         github::fetch_discussion(&owner, &name, number)
@@ -43,7 +49,11 @@ pub async fn open_pr(cwd: &Path, number: u64) -> Result<OpenedPr> {
 
     info!("reading commits and diffs");
     let mut manifest = build_manifest(&repo, &range.base, &range.head).await?;
-    let commit_numbers: HashMap<&str, usize> = manifest.commits.iter().map(|c| (c.oid.as_str(), c.n)).collect();
+    let commit_numbers: HashMap<&str, usize> = manifest
+        .commits
+        .iter()
+        .map(|c| (c.oid.as_str(), c.n))
+        .collect();
     manifest.threads = Some(build_threads(raw_threads, conversation, &commit_numbers));
     manifest.pr = Some(info.meta);
     info!(
@@ -53,8 +63,16 @@ pub async fn open_pr(cwd: &Path, number: u64) -> Result<OpenedPr> {
         manifest.threads.as_ref().map_or(0, Vec::len),
         started.elapsed()
     );
-    let key = PrKey { owner, repo: name, number };
-    Ok(OpenedPr { repo, key, manifest })
+    let key = PrKey {
+        owner,
+        repo: name,
+        number,
+    };
+    Ok(OpenedPr {
+        repo,
+        key,
+        manifest,
+    })
 }
 
 fn short(oid: &str) -> &str {

@@ -120,7 +120,11 @@ mod tests {
         repo.git(&["commit", "-q", "-m", "merge side"]);
 
         let m = build_manifest(repo.path(), &base, "HEAD").await.unwrap();
-        assert!(m.files.iter().all(|f| !f.changed_by.is_empty()), "{:?}", m.files);
+        assert!(
+            m.files.iter().all(|f| !f.changed_by.is_empty()),
+            "{:?}",
+            m.files
+        );
         let evil = m.files.iter().find(|f| f.path == "evil.txt").unwrap();
         assert_eq!(evil.changed_by, vec![m.commits.len()]);
     }
