@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { fileText, loadManifest } from "./lib/backend";
 import { routeUrl } from "./lib/route";
-import { PR, isResolved, newCount } from "./lib/threads";
+import { ALL_THREADS, PR, isResolved, newCount, type FakeThread, type PrInfo } from "./lib/threads";
 import { StoreProvider, useStore, type Commit, type FileData, type Tab } from "./store";
 import { DiffTab } from "./tabs/DiffTab";
 import { ReviewTab, useReviewPayload } from "./tabs/ReviewTab";
@@ -10,6 +10,8 @@ import { SummaryTab } from "./tabs/SummaryTab";
 interface Loaded {
   files: FileData[];
   commits: Commit[];
+  pr: PrInfo;
+  threads: FakeThread[];
 }
 
 export async function loadAll(): Promise<Loaded> {
@@ -27,7 +29,8 @@ export async function loadAll(): Promise<Loaded> {
       }),
     ),
   );
-  return { files, commits: manifest.commits };
+  // Real PRs have no threads until they are fetched from GitHub; the fake ones only fit the fixtures.
+  return { files, commits: manifest.commits, pr: manifest.pr ?? PR, threads: manifest.pr ? [] : ALL_THREADS };
 }
 
 function Panel({ id, children }: { id: Tab; children: ReactNode }) {
@@ -40,7 +43,7 @@ function Panel({ id, children }: { id: Tab; children: ReactNode }) {
 }
 
 function Header() {
-  const { tab, setTab, currentFile, threads, resolutions } = useStore();
+  const { tab, setTab, currentFile, threads, resolutions, pr } = useStore();
   const payload = useReviewPayload();
   const pending = payload.comments.length + payload.replies.length;
   const withNew = threads.filter((t) => {
@@ -57,7 +60,7 @@ function Header() {
   return (
     <header className="app-header">
       <div className="pr-title">
-        <span className="pr-number">#{PR.number}</span> {PR.title}
+        <span className="pr-number">#{pr.number}</span> {pr.title}
       </div>
       <nav className="tabs">
         {tabs.map((t) => (
@@ -92,7 +95,7 @@ export function App() {
   if (!loaded) return <div className="loading">Loading…</div>;
 
   return (
-    <StoreProvider files={loaded.files} commits={loaded.commits}>
+    <StoreProvider files={loaded.files} commits={loaded.commits} threads={loaded.threads} pr={loaded.pr}>
       <div className="app">
         <Header />
         <div className="panels">

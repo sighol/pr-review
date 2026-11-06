@@ -11,7 +11,7 @@ import {
   type CommitRange,
 } from "./lib/range";
 import { parseLine, parseRoute, routeUrl, type Route, type Tab } from "./lib/route";
-import { ALL_THREADS, lastCommentId, type FakeThread, type Resolution } from "./lib/threads";
+import { lastCommentId, type FakeThread, type PrInfo, type Resolution } from "./lib/threads";
 
 export type { Tab } from "./lib/route";
 
@@ -71,6 +71,7 @@ interface Store {
   fileByName: ReadonlyMap<string, FileData>;
   commits: Commit[];
   threads: FakeThread[];
+  pr: PrInfo;
 
   /** File path -> approved commit numbers. */
   approvals: ReadonlyMap<string, ReadonlySet<number>>;
@@ -132,7 +133,8 @@ export function pendingReplies(replies: ReadonlyMap<string, string>): [string, s
 
 const currentRoute = () => parseRoute(location.pathname, location.search);
 
-const threadOf = (r: Route) => (r.thread ? ALL_THREADS.find((t) => t.id === r.thread && t.file) : undefined);
+const threadOf = (threads: FakeThread[], r: Route) =>
+  r.thread ? threads.find((t) => t.id === r.thread && t.file) : undefined;
 
 function computeRange(
   file: FileData,
@@ -147,10 +149,14 @@ function computeRange(
 export function StoreProvider({
   files,
   commits,
+  threads,
+  pr,
   children,
 }: {
   files: FileData[];
   commits: Commit[];
+  threads: FakeThread[];
+  pr: PrInfo;
   children: ReactNode;
 }) {
   const headN = commits.length;
@@ -210,7 +216,7 @@ export function StoreProvider({
     const file = fileByName.get(fileName);
     if (!file) return;
     const current = currentRangeRef(file);
-    const thread = threadOf(r);
+    const thread = threadOf(threads, r);
     if (thread) {
       if (threadPlacement(thread, current, file.changedBy) === null) setRange(file.path, rangeForThread(thread, current, headN));
       return;
@@ -225,7 +231,7 @@ export function StoreProvider({
   const resolveJump = useCallback(
     (r: Route, file: string, tick: number): JumpTarget | null => {
       if (r.tab !== "diff") return null;
-      const thread = threadOf(r);
+      const thread = threadOf(threads, r);
       if (thread) {
         return { file: thread.file!, side: thread.side, line: thread.line ?? thread.originalLine, threadId: thread.id, tick };
       }
@@ -237,7 +243,7 @@ export function StoreProvider({
 
   const initial = useMemo(() => {
     const r = currentRoute();
-    const file = validFile(threadOf(r)?.file ?? r.file, files[0]?.name ?? "");
+    const file = validFile(threadOf(threads, r)?.file ?? r.file, files[0]?.name ?? "");
     return { tab: r.tab, file, jump: resolveJump(r, file, 1) };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -259,7 +265,7 @@ export function StoreProvider({
   const apply = (r: Route) => {
     setTabState(r.tab);
     if (r.tab !== "diff") return;
-    const file = validFile(threadOf(r)?.file ?? r.file, currentFileRef.current);
+    const file = validFile(threadOf(threads, r)?.file ?? r.file, currentFileRef.current);
     setCurrentFileState(file);
     ensureVisible(r, file);
     const target = resolveJump(r, file, ++tickRef.current);
@@ -306,7 +312,7 @@ export function StoreProvider({
   const [resolutions, setResolutions] = useState<ReadonlyMap<string, Resolution>>(
     () =>
       new Map(
-        ALL_THREADS.flatMap((t) =>
+        threads.flatMap((t) =>
           t.resolvedThrough ? [[t.id, { through: t.resolvedThrough, reopened: false }] as const] : [],
         ),
       ),
@@ -369,7 +375,8 @@ export function StoreProvider({
       files,
       fileByName,
       commits,
-      threads: ALL_THREADS,
+      threads,
+      pr,
       approvals,
       approveFile,
       unapproveFile,

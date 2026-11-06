@@ -1,38 +1,41 @@
 use std::path::PathBuf;
-use std::sync::Mutex;
 
-use pr_review_core::{git, manifest};
+use pr_review_core::manifest::Manifest;
+use pr_review_core::{git, pr};
 use tauri::State;
 
-#[derive(Default)]
+const USAGE: &str = "usage: pr-review <PR number>\n\nRun it inside a clone of the GitHub repository. Needs `git` and an authenticated `gh`.";
+
 struct AppState {
-    repo: Mutex<Option<PathBuf>>,
+    repo: PathBuf,
+    manifest: Manifest,
 }
 
-fn repo_of(state: &AppState) -> Result<PathBuf, String> {
-    state.repo.lock().unwrap().clone().ok_or_else(|| "no PR is open".to_string())
+fn parse_args(mut args: impl Iterator<Item = String>) -> Result<u64, String> {
+    let (Some(arg), None) = (args.next(), args.next()) else {
+        return Err(USAGE.to_string());
+    };
+    if arg == "-h" || arg == "--help" {
+        return Err(USAGE.to_string());
+    }
+    arg.trim_start_matches('#')
+        .parse()
+        .map_err(|_| format!("'{arg}' is not a PR number\n\n{USAGE}"))
 }
 
-fn env(name: &str) -> Result<String, String> {
-    std::env::var(name).map_err(|_| format!("set {name} (temporary: there is no PR picker yet)"))
+fn exit_with(message: &str, code: i32) -> ! {
+    eprintln!("{message}");
+    std::process::exit(code)
 }
 
-/// Opens the PR named by PR_REVIEW_REPO (default: the current directory),
-/// PR_REVIEW_BASE and PR_REVIEW_HEAD.
 #[tauri::command]
-async fn open_pr(state: State<'_, AppState>) -> Result<manifest::Manifest, String> {
-    let repo = PathBuf::from(std::env::var("PR_REVIEW_REPO").unwrap_or_else(|_| ".".into()));
-    let m = manifest::build_manifest(&repo, &env("PR_REVIEW_BASE")?, &env("PR_REVIEW_HEAD")?)
-        .await
-        .map_err(|e| format!("{e:#}"))?;
-    *state.repo.lock().unwrap() = Some(repo);
-    Ok(m)
+fn open_pr(state: State<'_, AppState>) -> Manifest {
+    state.manifest.clone()
 }
 
 #[tauri::command]
 async fn file_text(state: State<'_, AppState>, oid: String, path: String) -> Result<String, String> {
-    let repo = repo_of(&state)?;
-    git::file_text(&repo, &oid, &path).await.map_err(|e| format!("{e:#}"))
+    git::file_text(&state.repo, &oid, &path).await.map_err(|e| format!("{e:#}"))
 }
 
 #[tauri::command]
@@ -42,14 +45,24 @@ async fn file_diff(
     to_oid: String,
     path: String,
 ) -> Result<String, String> {
-    let repo = repo_of(&state)?;
-    git::file_diff(&repo, &from_oid, &to_oid, &path).await.map_err(|e| format!("{e:#}"))
+    git::file_diff(&state.repo, &from_oid, &to_oid, &path)
+        .await
+        .map_err(|e| format!("{e:#}"))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let number = parse_args(std::env::args().skip(1)).unwrap_or_else(|msg| exit_with(&msg, 2));
+    let cwd = std::env::current_dir().unwrap_or_else(|e| exit_with(&format!("error: {e}"), 1));
+
+    let opened = tauri::async_runtime::block_on(pr::open_pr(&cwd, number, |step| eprintln!("{step}...")))
+        .unwrap_or_else(|e| exit_with(&format!("error: {e:#}"), 1));
+
     tauri::Builder::default()
-        .manage(AppState::default())
+        .manage(AppState {
+            repo: opened.repo,
+            manifest: opened.manifest,
+        })
         .invoke_handler(tauri::generate_handler![open_pr, file_text, file_diff])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

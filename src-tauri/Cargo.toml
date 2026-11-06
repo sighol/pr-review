@@ -3,6 +3,10 @@ name = "pr-review-app"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "pr-review"
+path = "src/main.rs"
+
 [lib]
 name = "pr_review_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
