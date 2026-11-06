@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { navigable, pickInOtherFile, pickRendered, type Box } from "./nav";
+import { inReadingOrder, navigable, pickNeighbor } from "./nav";
 import type { FakeThread } from "./threads";
 
 const thread = (id: string, file: string | null, line: number | null, over: Partial<FakeThread> = {}): FakeThread => ({
@@ -14,61 +14,68 @@ const thread = (id: string, file: string | null, line: number | null, over: Part
   ...over,
 });
 
-const boxes: Box[] = [
-  { id: "a", top: 0, bottom: 80 },
-  { id: "b", top: 200, bottom: 320 },
-  { id: "c", top: 600, bottom: 700 },
+const order = ["a.rs", "b.rs", "c.rs"];
+const all = () => true;
+const id = (t: FakeThread | null) => t?.id ?? null;
+
+// Reading order: a1 a2 | b1 b2 | c1 (given out of order on purpose).
+const threads = [
+  thread("c1", "c.rs", 5),
+  thread("b2", "b.rs", 90),
+  thread("a2", "a.rs", 20),
+  thread("b1", "b.rs", 5),
+  thread("a1", "a.rs", 10),
 ];
 
-test("next is the first box starting below the center, previous the last one ending above it", () => {
-  expect(pickRendered(boxes, 150, 1, () => true)).toBe("b");
-  expect(pickRendered(boxes, 150, -1, () => true)).toBe("a");
+test("reading order is by file, then line", () => {
+  expect(inReadingOrder(threads, order).map((t) => t.id)).toEqual(["a1", "a2", "b1", "b2", "c1"]);
 });
 
-test("the box spanning the center is neither next nor previous", () => {
-  // Jumping centers a box, so it must not be picked again.
-  expect(pickRendered(boxes, 260, 1, () => true)).toBe("c");
-  expect(pickRendered(boxes, 260, -1, () => true)).toBe("a");
+test("same-line discussions keep their given order", () => {
+  const same = [thread("x", "a.rs", 5), thread("y", "a.rs", 5)];
+  expect(inReadingOrder(same, order).map((t) => t.id)).toEqual(["x", "y"]);
 });
 
-test("nothing left in that direction", () => {
-  expect(pickRendered(boxes, 650, 1, () => true)).toBeNull();
-  expect(pickRendered(boxes, 40, -1, () => true)).toBeNull();
-  expect(pickRendered([], 100, 1, () => true)).toBeNull();
+test("next and previous step from the last discussion", () => {
+  expect(id(pickNeighbor(threads, order, "a.rs", "a1", 1, all))).toBe("a2");
+  expect(id(pickNeighbor(threads, order, "a.rs", "a2", 1, all))).toBe("b1");
+  expect(id(pickNeighbor(threads, order, "b.rs", "b1", -1, all))).toBe("a2");
+  expect(id(pickNeighbor(threads, order, "b.rs", "b2", -1, all))).toBe("b1");
 });
 
-test("the filter skips boxes", () => {
-  expect(pickRendered(boxes, 150, 1, (id) => id !== "b")).toBe("c");
-  expect(pickRendered(boxes, 650, -1, (id) => id === "a")).toBe("a");
+test("no wrap-around at either end", () => {
+  expect(pickNeighbor(threads, order, "c.rs", "c1", 1, all)).toBeNull();
+  expect(pickNeighbor(threads, order, "a.rs", "a1", -1, all)).toBeNull();
 });
 
-const order = ["a.rs", "b.rs", "c.rs", "d.rs"];
-
-test("other file: the first discussion of the next file with one, the last of the previous", () => {
-  const threads = [
-    thread("b-late", "b.rs", 90),
-    thread("b-early", "b.rs", 5),
-    thread("d1", "d.rs", 1),
-    thread("a1", "a.rs", 10),
-    thread("a2", "a.rs", 20),
-  ];
-  expect(pickInOtherFile(threads, order, "a.rs", 1, () => true)?.id).toBe("b-early");
-  expect(pickInOtherFile(threads, order, "b.rs", 1, () => true)?.id).toBe("d1");
-  expect(pickInOtherFile(threads, order, "b.rs", -1, () => true)?.id).toBe("a2");
-  expect(pickInOtherFile(threads, order, "d.rs", -1, () => true)?.id).toBe("b-late");
+test("the filter skips discussions but stepping still starts at the last one", () => {
+  const skipB = (t: FakeThread) => t.file !== "b.rs";
+  expect(id(pickNeighbor(threads, order, "a.rs", "a2", 1, skipB))).toBe("c1");
+  expect(id(pickNeighbor(threads, order, "c.rs", "c1", -1, skipB))).toBe("a2");
+  expect(pickNeighbor(threads, order, "a.rs", "a2", 1, (t) => t.id === "a1")).toBeNull();
 });
 
-test("other file: ends of the list, and the filter", () => {
-  const threads = [thread("a1", "a.rs", 10), thread("c1", "c.rs", 4, { githubResolved: true })];
-  expect(pickInOtherFile(threads, order, "c.rs", 1, () => true)).toBeNull();
-  expect(pickInOtherFile(threads, order, "a.rs", -1, () => true)).toBeNull();
-  expect(pickInOtherFile(threads, order, "a.rs", 1, (t) => t.id !== "c1")).toBeNull();
+test("the last one may itself be filtered out (e.g. resolved)", () => {
+  const notA2 = (t: FakeThread) => t.id !== "a2";
+  expect(id(pickNeighbor(threads, order, "a.rs", "a2", 1, notA2))).toBe("b1");
+  expect(id(pickNeighbor(threads, order, "a.rs", "a2", -1, notA2))).toBe("a1");
 });
 
-test("other file: same-line discussions keep their order", () => {
-  const threads = [thread("x", "b.rs", 5), thread("y", "b.rs", 5)];
-  expect(pickInOtherFile(threads, order, "a.rs", 1, () => true)?.id).toBe("x");
-  expect(pickInOtherFile(threads, order, "c.rs", -1, () => true)?.id).toBe("y");
+test("with nothing jumped to yet, it steps from the start of the viewed file", () => {
+  expect(id(pickNeighbor(threads, order, "b.rs", null, 1, all))).toBe("b1");
+  expect(id(pickNeighbor(threads, order, "b.rs", null, -1, all))).toBe("a2");
+  expect(id(pickNeighbor(threads, order, "a.rs", null, 1, all))).toBe("a1");
+  expect(pickNeighbor(threads, order, "a.rs", null, -1, all)).toBeNull();
+});
+
+test("a last discussion on another file than the viewed one is ignored", () => {
+  // Jumped to c1, then picked b.rs in the file selector.
+  expect(id(pickNeighbor(threads, order, "b.rs", "c1", 1, all))).toBe("b1");
+  expect(id(pickNeighbor(threads, order, "b.rs", "c1", -1, all))).toBe("a2");
+});
+
+test("a last discussion that no longer exists is ignored", () => {
+  expect(id(pickNeighbor(threads, order, "b.rs", "gone", 1, all))).toBe("b1");
 });
 
 test("conversation, unknown files and unplaceable threads are not navigable", () => {
@@ -78,6 +85,6 @@ test("conversation, unknown files and unplaceable threads are not navigable", ()
   expect(navigable(thread("orphan", "a.rs", null, { commit: 0 }), order)).toBe(false);
   expect(navigable(thread("ok", "a.rs", 3), order)).toBe(true);
 
-  const threads = [thread("orphan", "b.rs", null, { commit: 0 }), thread("conv", null, 0)];
-  expect(pickInOtherFile(threads, order, "a.rs", 1, () => true)).toBeNull();
+  const odd = [thread("orphan", "b.rs", null, { commit: 0 }), thread("conv", null, 0)];
+  expect(pickNeighbor(odd, order, "a.rs", null, 1, all)).toBeNull();
 });
