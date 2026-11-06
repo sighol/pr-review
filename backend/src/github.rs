@@ -1,6 +1,23 @@
+use std::time::Instant;
+
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
+use tracing::{debug, warn};
+
+/// Logs a finished `gh` call: debug with timing when it worked, a warning with stderr when not.
+fn log_gh(what: &str, started: Instant, out: &std::process::Output) {
+    if out.status.success() {
+        debug!("gh {what} -> {} in {:?}", out.status, started.elapsed());
+    } else {
+        warn!(
+            "gh {what} failed ({}) after {:?}: {}",
+            out.status,
+            started.elapsed(),
+            String::from_utf8_lossy(&out.stderr).trim()
+        );
+    }
+}
 
 /// The PR fields the UI shows (serialized into the manifest as `pr`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -53,6 +70,7 @@ fn parse_pr_view(json: &[u8]) -> Result<PrInfo> {
 
 /// PR metadata via the GitHub CLI, which brings its own authentication.
 pub async fn pr_view(owner: &str, repo: &str, number: u64) -> Result<PrInfo> {
+    let started = Instant::now();
     let out = Command::new("gh")
         .args([
             "pr",
@@ -66,6 +84,7 @@ pub async fn pr_view(owner: &str, repo: &str, number: u64) -> Result<PrInfo> {
         .output()
         .await
         .context("failed to run `gh` (is the GitHub CLI installed?)")?;
+    log_gh(&format!("pr view {number}"), started, &out);
     if !out.status.success() {
         bail!(
             "`gh pr view {number}` failed for {owner}/{repo} (try `gh auth status`): {}",
@@ -81,6 +100,7 @@ pub async fn graphql(query: &str, variables: serde_json::Value) -> Result<serde_
     use std::process::Stdio;
     use tokio::io::AsyncWriteExt;
 
+    let started = Instant::now();
     let body = serde_json::json!({ "query": query, "variables": variables });
     let mut child = Command::new("gh")
         .args([
@@ -100,6 +120,7 @@ pub async fn graphql(query: &str, variables: serde_json::Value) -> Result<serde_
     stdin.write_all(body.to_string().as_bytes()).await?;
     drop(stdin);
     let out = child.wait_with_output().await?;
+    log_gh("api graphql", started, &out);
     if !out.status.success() {
         bail!("{}", String::from_utf8_lossy(&out.stderr).trim());
     }
@@ -311,11 +332,13 @@ pub async fn fetch_review_threads(owner: &str, repo: &str, number: u64) -> Resul
             args.push("-f".to_string());
             args.push(format!("after={after}"));
         }
+        let started = Instant::now();
         let out = Command::new("gh")
             .args(&args)
             .output()
             .await
             .context("failed to run `gh api graphql` for review threads")?;
+        log_gh("api graphql (review threads)", started, &out);
         if !out.status.success() {
             bail!(
                 "fetching review threads failed: {}",
@@ -362,6 +385,7 @@ fn parse_conversation(json: &[u8]) -> Result<Vec<RawComment>> {
 
 /// The PR's top-level comments (not attached to code), oldest first.
 pub async fn fetch_conversation(owner: &str, repo: &str, number: u64) -> Result<Vec<RawComment>> {
+    let started = Instant::now();
     let out = Command::new("gh")
         .args([
             "pr",
@@ -375,6 +399,7 @@ pub async fn fetch_conversation(owner: &str, repo: &str, number: u64) -> Result<
         .output()
         .await
         .context("failed to run `gh pr view` for conversation comments")?;
+    log_gh("pr view (conversation)", started, &out);
     if !out.status.success() {
         bail!(
             "fetching conversation comments failed: {}",

@@ -1,5 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { FatalError } from "./components/ErrorBoundary";
 import { fileText, loadManifest, loadSaved, type SavedState } from "./lib/backend";
+import { describeError, describeViewport, log } from "./lib/log";
 import { routeUrl } from "./lib/route";
 import { ALL_THREADS, PR, isResolved, newCount, threadFromJson, type FakeThread, type PrInfo } from "./lib/threads";
 import { StoreProvider, useStore, type Commit, type FileData, type Tab } from "./store";
@@ -16,7 +18,15 @@ interface Loaded {
 }
 
 export async function loadAll(): Promise<Loaded> {
+  const started = performance.now();
+  const elapsed = () => `${Math.round(performance.now() - started)}ms`;
+  log("info", "loading the PR from the backend");
   const manifest = await loadManifest();
+  log(
+    "info",
+    `got the manifest: ${manifest.files.length} files, ${manifest.commits.length} commits, ` +
+      `${manifest.threads ? `${manifest.threads.length} threads` : "no threads"} (${elapsed()})`,
+  );
   const files = await Promise.all(
     manifest.files.map(
       async (f): Promise<FileData> => ({
@@ -30,14 +40,23 @@ export async function loadAll(): Promise<Loaded> {
       }),
     ),
   );
+  log("info", `read the latest text of ${files.length} files (${elapsed()})`);
   const now = Date.now();
+  const saved = await loadSaved();
+  if (saved) {
+    log(
+      "info",
+      `saved state: ${saved.approvals.length} approvals, ${saved.drafts.length} drafts, ` +
+        `${saved.replies.length} replies (${elapsed()})`,
+    );
+  }
   return {
     files,
     commits: manifest.commits,
     pr: manifest.pr ?? PR,
     // The fake threads only fit the fixtures, which have no `threads`.
     threads: manifest.threads ? manifest.threads.map((t) => threadFromJson(t, now)) : ALL_THREADS,
-    saved: await loadSaved(),
+    saved,
   };
 }
 
@@ -96,10 +115,21 @@ function Header() {
 
 export function App() {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
+  const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    loadAll().then(setLoaded);
+    loadAll()
+      .then(setLoaded)
+      .catch((e) => {
+        const details = describeError(e);
+        log("error", `loading the PR failed: ${details}`);
+        setError(details);
+      });
   }, []);
+  useEffect(() => {
+    if (loaded) log("info", `rendered the PR. ${describeViewport()}`);
+  }, [loaded]);
 
+  if (error !== null) return <FatalError title="Could not load the PR" details={error} />;
   if (!loaded) return <div className="loading">Loading…</div>;
 
   return (
