@@ -34,7 +34,9 @@ cargo tauri dev -- -- 13486
 
 ## How a PR is opened
 
-`pr-review <N>` (src-tauri/src/lib.rs) does all the work *before* the window opens, printing progress and errors on stderr and exiting non-zero on failure. `pr-review-core::pr::open_pr` runs: `git rev-parse --show-toplevel` -> owner/repo from `origin` -> `gh pr view` (title, body, author, base branch) -> `git fetch origin +refs/pull/N/head:refs/pr-review/N/head +refs/heads/<base>:refs/remotes/origin/<base>` (works for fork PRs; never touches your branches) -> base = merge-base(origin/<base>, head) -> manifest. It always fetches; there is no cache. GitHub is reached only through the `gh` CLI (auth comes from `gh auth login`); everything git can do goes through `git`. The window then gets the stored manifest via the `open_pr` command. Real PRs show no threads yet (empty list); the fake threads only appear in browser/fixture mode.
+`pr-review <N>` (src-tauri/src/lib.rs) does all the work *before* the window opens, printing progress and errors on stderr and exiting non-zero on failure. `pr-review-core::pr::open_pr` runs: `git rev-parse --show-toplevel` -> owner/repo from `origin` -> `gh pr view` (title, body, author, base branch) -> `git fetch origin +refs/pull/N/head:refs/pr-review/N/head +refs/heads/<base>:refs/remotes/origin/<base>` (works for fork PRs; never touches your branches) -> base = merge-base(origin/<base>, head) -> manifest. Review threads (`gh api graphql`, paged) and conversation comments (`gh pr view --json comments`) are fetched in parallel with the git fetch. It always fetches; there is no cache and no refresh while the app is open (restart to see new comments). GitHub is reached only through the `gh` CLI (auth comes from `gh auth login`); everything git can do goes through `git`. The window then gets the stored manifest (including `pr` and `threads`) via the `open_pr` command. The fake threads only appear in browser/fixture mode, whose manifest has no `threads`.
+
+Thread mapping (`backend/src/threads.rs`): `originalCommit` becomes a commit number; **0 means the commit is not in the PR** (force-push/rebase). A thread with commit 0 that is also outdated on the new side is `placeable() === false` (`lib/range.ts`): it is listed on Summary/Review but never placed in a diff, has no "View base..#c" button, and is left out of the "not shown in this range" strip. Multi-line threads are anchored at their end line; the start line is not carried. GitHub comments in your own unsubmitted (PENDING) review are dropped. Conversation comments become one thread with id `conversation` (omitted when empty).
 
 Routes: `/` summary (default), `/diff?file=<path>[&thread=<id> | &line=<side>:<n>]`, `/review`. Browser back/forward work (History API, no router library). The selected commit range is **not** in the URL yet.
 
@@ -67,7 +69,7 @@ Don't re-litigate these without the user asking.
 - `lib/diff.ts` — unified-diff parser, row builder (pairing, gaps, whole-file mode), word ranges, drag clamping, suggestion blocks. Pure; this is the part most likely to survive into the real app.
 - `lib/range.ts` — commit ranges, content *states*, commentable sides, thread placement. Pure.
 - `lib/approval.ts` — approval status, since-approval start point, next-unapproved. Pure.
-- `lib/threads.ts` — thread types, resolve/new logic, and the **fake** PR title/description/threads (`PR`, `ALL_THREADS`). Replace with real data later.
+- `lib/threads.ts` — thread types, resolve/new logic, `threadFromJson` for backend threads, and the **fake** PR title/description/threads (`PR`, `ALL_THREADS`) used only in browser/fixture mode. `lib/time.ts` formats "3 hours ago".
 - `lib/data.ts` — lazy, cached fetching of file states and diffs; `useRangeData`.
 - `lib/route.ts` — URL <-> route parsing. `lib/highlight.ts` — Shiki wrapper. `lib/snippet.ts`, `lib/suggest.ts` — small pure helpers.
 - `store.tsx` — the single PR-level store (React context): drafts, replies, resolutions, approvals, ranges, current tab/file, jump requests. URL is the source of truth for tab/file/jump.
@@ -92,7 +94,7 @@ The frontend deliberately consumes only "text + `git diff`", which is the contra
 
 ## Not built yet
 
-GitHub review threads and PR conversation comments (GraphQL, via `gh api graphql`); submitting a real review; the selected commit range in the URL; keyboard shortcuts; large-file performance work beyond `content-visibility`.
+submitting a real review (and posting replies, which are local drafts until then); refreshing threads while the app is open; highlighting a multi-line thread's range; the selected commit range in the URL; keyboard shortcuts; large-file performance work beyond `content-visibility`.
 
 ## Porting from the old TUI
 

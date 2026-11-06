@@ -3,7 +3,7 @@ import { DiffView } from "../components/DiffView";
 import { RangeBar } from "../components/RangeBar";
 import { isFullyApproved, latestCommit, nextUnapproved } from "../lib/approval";
 import { rangeKey, useRangeData } from "../lib/data";
-import { commentable, defaultRange, rangeLabel, sameRange, stateOf, threadPlacement } from "../lib/range";
+import { commentable, defaultRange, placeable, rangeLabel, sameRange, stateOf, threadPlacement } from "../lib/range";
 import { threadLine, useStore } from "../store";
 
 export function DiffTab() {
@@ -39,7 +39,9 @@ export function DiffTab() {
   const ok = commentable(range, file.changedBy);
   const ready = !!data && data.key === rangeKey(file, range);
   const unchanged = stateOf(file.changedBy, range.from) === stateOf(file.changedBy, range.to);
-  const hidden = threads.filter((t) => t.file === file.path && threadPlacement(t, range, file.changedBy) === null);
+  const hidden = threads.filter(
+    (t) => t.file === file.path && placeable(t) && threadPlacement(t, range, file.changedBy) === null,
+  );
 
   const status = (path: string) => {
     const f = fileByName.get(path)!;
