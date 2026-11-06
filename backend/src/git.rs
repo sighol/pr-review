@@ -24,7 +24,12 @@ async fn run(repo: &Path, args: &[&str]) -> Result<std::process::Output> {
         .output()
         .await
         .with_context(|| format!("failed to run git {}", args.join(" ")))?;
-    debug!("git {} -> {} in {:?}", args.join(" "), out.status, started.elapsed());
+    debug!(
+        "git {} -> {} in {:?}",
+        args.join(" "),
+        out.status,
+        started.elapsed()
+    );
     Ok(out)
 }
 
@@ -32,7 +37,12 @@ async fn git(repo: &Path, args: &[&str]) -> Result<String> {
     let out = run(repo, args).await?;
     if !out.status.success() {
         let stderr = String::from_utf8_lossy(&out.stderr);
-        warn!("git {} failed ({}): {}", args.join(" "), out.status, stderr.trim());
+        warn!(
+            "git {} failed ({}): {}",
+            args.join(" "),
+            out.status,
+            stderr.trim()
+        );
         bail!("git {} failed: {}", args.join(" "), stderr.trim());
     }
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())

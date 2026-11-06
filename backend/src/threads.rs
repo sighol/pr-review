@@ -33,6 +33,8 @@ pub struct Comment {
     pub author: String,
     pub created_at: String,
     pub body: String,
+    /// The comment's permalink on github.com.
+    pub url: String,
 }
 
 fn comment(c: RawComment) -> Comment {
@@ -41,6 +43,7 @@ fn comment(c: RawComment) -> Comment {
         author: c.author,
         created_at: c.created_at,
         body: c.body,
+        url: c.url,
     }
 }
 
@@ -97,6 +100,7 @@ mod tests {
             author: "alice".into(),
             created_at: "2026-01-02T03:04:05Z".into(),
             body: format!("body {id}"),
+            url: format!("https://github.com/o/r/pull/1#discussion_{id}"),
             original_commit_oid: commit.map(String::from),
         }
     }
@@ -201,5 +205,6 @@ mod tests {
         assert_eq!(v["originalLine"], 7);
         assert_eq!(v["githubResolved"], false);
         assert_eq!(v["comments"][0]["createdAt"], "2026-01-02T03:04:05Z");
+        assert_eq!(v["comments"][0]["url"], "https://github.com/o/r/pull/1#discussion_c1");
     }
 }

@@ -41,10 +41,7 @@ fn init_logging() {
 }
 
 /// Runs a command's work and logs how it went, so failures always reach the terminal.
-async fn logged<T>(
-    name: &str,
-    work: impl Future<Output = anyhow::Result<T>>,
-) -> Result<T, String> {
+async fn logged<T>(name: &str, work: impl Future<Output = anyhow::Result<T>>) -> Result<T, String> {
     let started = Instant::now();
     match work.await {
         Ok(value) => {
@@ -242,6 +239,7 @@ pub fn run() {
 
     info!("starting the window after {:?}", started.elapsed());
     tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
         .manage(AppState {
             repo: opened.repo,
             manifest: opened.manifest,

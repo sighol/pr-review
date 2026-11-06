@@ -843,6 +843,15 @@ textarea {
   border-radius: 6px;
   font-size: 12px;
 }
+.markdown a,
+.comment-head a {
+  color: var(--accent);
+  text-decoration: none;
+}
+.markdown a:hover,
+.comment-head a:hover {
+  text-decoration: underline;
+}
 .nav-group {
   display: flex;
   align-items: center;

@@ -4,6 +4,7 @@ import { langFor } from "../lib/highlight";
 import { asOfRange, rangeLabel, sameRange } from "../lib/range";
 import { firstNewIndex, isResolved, newCount, type FakeThread } from "../lib/threads";
 import { useStore } from "../store";
+import { ExternalLink } from "./ExternalLink";
 import { Markdown } from "./Markdown";
 
 interface Props {
@@ -87,7 +88,14 @@ export function ThreadBox({ thread, expanded = false, preview = false }: Props) 
             <div className={`thread-comment${isNew ? " new" : ""}`}>
               <div className="comment-head">
                 <span>
-                  <strong>{c.author}</strong> · {c.when}
+                  <strong>{c.author}</strong> ·{" "}
+                  {c.url ? (
+                    <ExternalLink href={c.url} title="Open this comment on GitHub">
+                      {c.when}
+                    </ExternalLink>
+                  ) : (
+                    c.when
+                  )}
                   {isNew && <span className="badge-new inline">NEW</span>}
                 </span>
               </div>

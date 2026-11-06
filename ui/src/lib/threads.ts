@@ -6,6 +6,8 @@ export interface FakeComment {
   author: string;
   when: string;
   body: string;
+  /** The comment on github.com; the fake comments have none. */
+  url?: string;
 }
 
 export interface FakeThread {
@@ -36,13 +38,19 @@ export interface ThreadJson {
   /** Commit number; 0 when unknown (force-pushed away) or for the conversation. */
   commit: number;
   githubResolved: boolean;
-  comments: { id: string; author: string; createdAt: string; body: string }[];
+  comments: { id: string; author: string; createdAt: string; body: string; url: string }[];
 }
 
 export function threadFromJson(j: ThreadJson, now: number): FakeThread {
   return {
     ...j,
-    comments: j.comments.map((c) => ({ id: c.id, author: c.author, when: relativeTime(c.createdAt, now), body: c.body })),
+    comments: j.comments.map((c) => ({
+      id: c.id,
+      author: c.author,
+      when: relativeTime(c.createdAt, now),
+      body: c.body,
+      url: c.url,
+    })),
   };
 }
 

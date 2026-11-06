@@ -40,6 +40,14 @@ Thread mapping (`backend/src/threads.rs`): `originalCommit` becomes a commit num
 
 Routes: `/` summary (default), `/diff?file=<path>[&thread=<id> | &line=<side>:<n>]`, `/review`. Browser back/forward work (History API, no router library). The selected commit range is **not** in the URL yet.
 
+## Logging and diagnosing
+
+Everything logs to **stderr** (tracing in Rust, `src-tauri/src/lib.rs::init_logging`). `PR_REVIEW_LOG=debug` turns on debug for this app's own crates and the frontend (every git and `gh` call with exit status and timing, every Tauri command); other values are full `tracing` filters (e.g. `PR_REVIEW_LOG=pr_review_core=debug,sqlx=warn`). The startup steps in `pr-review-core::pr::open_pr` log at info.
+
+The frontend writes to the same log through the `frontend_log` command (`ui/src/lib/log.ts`): a startup trace (`frontend starting`, viewport/font sizes, manifest/saved-state counts and timings, `rendered the PR`), uncaught errors, unhandled promise rejections, failed script/stylesheet loads and `console.error`/`warn`. In a browser only warnings and errors reach the console. If loading fails the window shows the error (`FatalError`) instead of a blank "Loading…", and an error boundary does the same for render errors. If the window looks wrong, the last `frontend:` line in the terminal says how far it got.
+
+Links: every markdown link (`components/Markdown.tsx`) and each comment's relative time (links to the comment on GitHub, `Comment.url`) go through `components/ExternalLink.tsx`, which hands http(s)/mailto URLs to the default browser via `tauri-plugin-opener` (`lib/external.ts`; capability `opener:default`) and blocks other links so nothing navigates inside the app.
+
 ## Submitting a review
 
 `submit_review` (`backend/src/review.rs`, `backend/src/submit.rs`) reads drafts, replies and the review body from the **database** (the frontend flushes its debounced saves first and sends only the event), and posts through `gh api graphql --input -` using GitHub's pending-review flow: `addPullRequestReview` (anchored to the fetched head) -> `addPullRequestReviewThread` per draft (single line, or `startLine`..`line`; old side = LEFT) -> `addPullRequestReviewThreadReply` per thread reply -> `submitPullRequestReview(event, body)`. If any step fails the pending review is deleted, so nothing is half-posted and local drafts stay intact. Rules:

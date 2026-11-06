@@ -147,6 +147,8 @@ pub struct RawComment {
     /// ISO 8601, as GitHub returns it.
     pub created_at: String,
     pub body: String,
+    /// The comment's permalink on github.com.
+    pub url: String,
     /// The commit the comment was made on; unset in the conversation.
     pub original_commit_oid: Option<String>,
 }
@@ -187,6 +189,7 @@ query($owner: String!, $repo: String!, $number: Int!, $after: String) {
               author { login }
               createdAt
               body
+              url
               state
               originalCommit { oid }
             }
@@ -259,6 +262,7 @@ struct GqlComment {
     author: Option<AuthorJson>,
     created_at: String,
     body: String,
+    url: String,
     state: String,
     original_commit: Option<GqlCommit>,
 }
@@ -293,6 +297,7 @@ fn parse_threads_page(json: &[u8]) -> Result<(Vec<RawThread>, Option<String>)> {
                     author: ghost_if_none(c.author),
                     created_at: c.created_at,
                     body: c.body,
+                    url: c.url,
                     original_commit_oid: c.original_commit.map(|o| o.oid),
                 })
                 .collect();
@@ -366,6 +371,7 @@ struct ConversationCommentJson {
     author: Option<AuthorJson>,
     body: String,
     created_at: String,
+    url: String,
 }
 
 fn parse_conversation(json: &[u8]) -> Result<Vec<RawComment>> {
@@ -378,6 +384,7 @@ fn parse_conversation(json: &[u8]) -> Result<Vec<RawComment>> {
             author: ghost_if_none(c.author),
             created_at: c.created_at,
             body: c.body,
+            url: c.url,
             original_commit_oid: None,
         })
         .collect())
@@ -432,13 +439,13 @@ mod tests {
             "nodes":[
               {"id":"PRRT_1","path":"src/a.rs","line":12,"originalLine":10,"diffSide":"RIGHT","isOutdated":false,"isResolved":true,
                "comments":{"nodes":[
-                 {"id":"C1","author":{"login":"alice"},"createdAt":"2026-01-02T03:04:05Z","body":"hm","state":"SUBMITTED","originalCommit":{"oid":"abc"}},
-                 {"id":"C2","author":null,"createdAt":"2026-01-03T03:04:05Z","body":"reply","state":"SUBMITTED","originalCommit":null},
-                 {"id":"C3","author":{"login":"me"},"createdAt":"2026-01-04T03:04:05Z","body":"unsent","state":"PENDING","originalCommit":null}
+                 {"id":"C1","author":{"login":"alice"},"createdAt":"2026-01-02T03:04:05Z","body":"hm","url":"https://github.com/o/r/pull/1#discussion_r1","state":"SUBMITTED","originalCommit":{"oid":"abc"}},
+                 {"id":"C2","author":null,"createdAt":"2026-01-03T03:04:05Z","body":"reply","url":"https://github.com/o/r/pull/1#discussion_r2","state":"SUBMITTED","originalCommit":null},
+                 {"id":"C3","author":{"login":"me"},"createdAt":"2026-01-04T03:04:05Z","body":"unsent","url":"u3","state":"PENDING","originalCommit":null}
                ]}},
               {"id":"PRRT_2","path":"b.rs","line":null,"originalLine":3,"diffSide":"LEFT","isOutdated":true,"isResolved":false,
                "comments":{"nodes":[
-                 {"id":"C4","author":{"login":"me"},"createdAt":"2026-01-04T03:04:05Z","body":"only pending","state":"PENDING","originalCommit":{"oid":"def"}}
+                 {"id":"C4","author":{"login":"me"},"createdAt":"2026-01-04T03:04:05Z","body":"only pending","url":"u4","state":"PENDING","originalCommit":{"oid":"def"}}
                ]}}
             ]}}}}}"#;
         let (threads, next) = parse_threads_page(json).unwrap();
@@ -460,6 +467,7 @@ mod tests {
         assert_eq!(t.comments.len(), 2);
         assert_eq!(t.comments[0].original_commit_oid.as_deref(), Some("abc"));
         assert_eq!(t.comments[1].author, "ghost");
+        assert_eq!(t.comments[0].url, "https://github.com/o/r/pull/1#discussion_r1");
     }
 
     #[test]
@@ -471,7 +479,7 @@ mod tests {
 
     #[test]
     fn parses_conversation_comments() {
-        let json = br#"{"comments":[{"id":"IC_1","author":{"login":"bob"},"body":"hi","createdAt":"2026-02-01T00:00:00Z","url":"u"}]}"#;
+        let json = br#"{"comments":[{"id":"IC_1","author":{"login":"bob"},"body":"hi","createdAt":"2026-02-01T00:00:00Z","url":"https://github.com/o/r/pull/1#issuecomment-1"}]}"#;
         assert_eq!(
             parse_conversation(json).unwrap(),
             vec![RawComment {
@@ -479,6 +487,7 @@ mod tests {
                 author: "bob".into(),
                 created_at: "2026-02-01T00:00:00Z".into(),
                 body: "hi".into(),
+                url: "https://github.com/o/r/pull/1#issuecomment-1".into(),
                 original_commit_oid: None,
             }]
         );
