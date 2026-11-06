@@ -1,0 +1,99 @@
+diff --git a/src/github.rs b/src/github.rs
+index cb85df7..c0d25e0 100644
+--- a/src/github.rs
++++ b/src/github.rs
+@@ -7,19 +7,21 @@ use tokio::process::Command;
+ /// diff locally. Everything else (commits, changed files, diffs) comes from
+ /// local `git`, not the GitHub API.
+ pub struct PrRefs {
+-    pub base_oid: String,
++    pub base_ref_name: String,
+     pub head_oid: String,
+     pub head_ref_name: String,
++    pub title: String,
+ }
+ 
+ #[derive(Deserialize)]
+ struct PrViewJson {
+-    #[serde(rename = "baseRefOid")]
+-    base_ref_oid: String,
++    #[serde(rename = "baseRefName")]
++    base_ref_name: String,
+     #[serde(rename = "headRefOid")]
+     head_ref_oid: String,
+     #[serde(rename = "headRefName")]
+     head_ref_name: String,
++    title: String,
+ }
+ 
+ pub async fn fetch_pr_refs(owner: &str, repo: &str, pr_number: u64) -> Result<PrRefs> {
+@@ -31,7 +33,7 @@ pub async fn fetch_pr_refs(owner: &str, repo: &str, pr_number: u64) -> Result<Pr
+             "--repo",
+             &format!("{owner}/{repo}"),
+             "--json",
+-            "baseRefOid,headRefOid,headRefName",
++            "baseRefName,headRefOid,headRefName,title",
+         ])
+         .output()
+         .await
+@@ -48,9 +50,10 @@ pub async fn fetch_pr_refs(owner: &str, repo: &str, pr_number: u64) -> Result<Pr
+         .context("failed to parse `gh pr view` output as JSON")?;
+ 
+     Ok(PrRefs {
+-        base_oid: parsed.base_ref_oid,
++        base_ref_name: format!("origin/{}", parsed.base_ref_name),
+         head_oid: parsed.head_ref_oid,
+         head_ref_name: parsed.head_ref_name,
++        title: parsed.title,
+     })
+ }
+ 
+@@ -61,6 +64,8 @@ pub struct ReviewComment {
+     pub author: String,
+     pub created_at: DateTime<Utc>,
+     pub body: String,
++    /// The comment's permalink on github.com.
++    pub url: String,
+     /// The diff hunk this comment was made against, exactly as GitHub
+     /// recorded it at the time — unset for top-level conversation comments.
+     pub diff_hunk: String,
+@@ -137,6 +142,7 @@ struct CommentNode {
+     #[serde(rename = "createdAt")]
+     created_at: DateTime<Utc>,
+     body: String,
++    url: String,
+     #[serde(rename = "diffHunk", default)]
+     diff_hunk: String,
+     #[serde(rename = "originalCommit")]
+@@ -169,6 +175,7 @@ query($owner: String!, $repo: String!, $number: Int!, $after: String) {
+               author { login }
+               createdAt
+               body
++              url
+               diffHunk
+               originalCommit { oid }
+             }
+@@ -239,6 +246,7 @@ pub async fn fetch_review_threads(
+                         .unwrap_or_else(|| "ghost".to_string()),
+                     created_at: c.created_at,
+                     body: c.body,
++                    url: c.url,
+                     diff_hunk: c.diff_hunk,
+                     original_commit_oid: c.original_commit.map(|oc| oc.oid),
+                 })
+@@ -274,6 +282,7 @@ struct ConversationCommentJson {
+     #[serde(rename = "createdAt")]
+     created_at: DateTime<Utc>,
+     body: String,
++    url: String,
+ }
+ 
+ /// Fetches the PR's top-level conversation comments (the ones with no
+@@ -318,6 +327,7 @@ pub async fn fetch_pr_conversation_comments(
+                 .unwrap_or_else(|| "ghost".to_string()),
+             created_at: c.created_at,
+             body: c.body,
++            url: c.url,
+             diff_hunk: String::new(),
+             original_commit_oid: None,
+         })

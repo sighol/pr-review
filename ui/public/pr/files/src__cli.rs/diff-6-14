@@ -1,0 +1,55 @@
+diff --git a/src/cli.rs b/src/cli.rs
+index 4c6ad38..3d79e49 100644
+--- a/src/cli.rs
++++ b/src/cli.rs
+@@ -8,6 +8,9 @@ use clap::{Parser, Subcommand};
+ pub struct Cli {
+     #[command(subcommand)]
+     pub command: Command,
++
++    #[arg(short = 'C', long, global = true)]
++    pub repo: Option<PathBuf>,
+ }
+ 
+ #[derive(Subcommand)]
+@@ -19,8 +22,6 @@ pub enum Command {
+     Diff {
+         #[arg(value_parser = parse_pr_number)]
+         pr_number: Option<u64>,
+-        #[arg(long)]
+-        repo: Option<PathBuf>,
+         /// Refetch PR metadata from GitHub and `git fetch origin`, instead of
+         /// resolving the branch from local git state.
+         #[arg(long)]
+@@ -40,8 +41,6 @@ pub enum Command {
+         #[arg(value_parser = parse_pr_number)]
+         pr_number: Option<u64>,
+         #[arg(long)]
+-        repo: Option<PathBuf>,
+-        #[arg(long)]
+         fetch: bool,
+         #[arg(long)]
+         commit: Option<String>,
+@@ -53,13 +52,20 @@ pub enum Command {
+     Threads {
+         #[arg(value_parser = parse_pr_number)]
+         pr_number: Option<u64>,
+-        #[arg(long)]
+-        repo: Option<PathBuf>,
+         /// Render each discussion's diff hunk side-by-side. Only takes effect
+         /// when `delta` is installed; ignored otherwise.
+         #[arg(long)]
+         side_by_side: bool,
+     },
++    /// Print the currently active PR number for this repo, or exit 1 if
++    /// none is set.
++    Get,
++    /// Set the active PR for this repo, fetching it from GitHub so it's
++    /// ready for subsequent `diff`/`status`/`threads` calls.
++    Set {
++        #[arg(value_parser = parse_pr_number)]
++        pr_number: u64,
++    },
+ }
+ 
+ /// Accepts a PR number with an optional leading `#`, e.g. `123` or `#123`.

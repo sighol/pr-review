@@ -1,0 +1,150 @@
+diff --git a/src/threads.rs b/src/threads.rs
+index e0fbc71..02a9590 100644
+--- a/src/threads.rs
++++ b/src/threads.rs
+@@ -1,3 +1,4 @@
++use std::collections::HashMap;
+ use std::io::{self, Write};
+ use std::path::Path;
+ 
+@@ -12,17 +13,21 @@ use termimad::MadSkin;
+ 
+ use crate::db;
+ use crate::diff;
++use crate::git;
+ use crate::github::{self, ReviewComment};
+ use crate::interactive::read_key;
+ use crate::pager::page;
+ 
+ /// A single discussion to walk through: either an inline code-review thread
+-/// (`path`/`diff_hunk` set) or the PR's top-level conversation (both `None`).
++/// (`path`/`diff_hunk`/`commit_oid` set) or the PR's top-level conversation
++/// (all three `None`).
+ struct Discussion {
+     id: String,
+     path: Option<String>,
+     line: Option<i64>,
+     diff_hunk: Option<String>,
++    /// The commit the discussion's diff hunk is anchored to.
++    commit_oid: Option<String>,
+     comments: Vec<ReviewComment>,
+ }
+ 
+@@ -55,10 +60,23 @@ pub async fn run(
+     pr_number: u64,
+     side_by_side: bool,
+ ) -> Result<()> {
++    eprintln!("Fetching PR #{pr_number} from GitHub...");
++    let pr_refs = github::fetch_pr_refs(owner, repo, pr_number).await?;
+     let review_threads = github::fetch_review_threads(owner, repo, pr_number).await?;
+     let conversation_comments =
+         github::fetch_pr_conversation_comments(owner, repo, pr_number).await?;
+ 
++    eprintln!("Fetching origin (for commit numbers)...");
++    git::fetch_origin(repo_path).await?;
++    git::ensure_commits_available(repo_path, &pr_refs.base_oid, &pr_refs.head_oid).await?;
++    let commits = git::commits_in_range(repo_path, &pr_refs.base_oid, &pr_refs.head_oid).await?;
++    // 1-based, matching the numbering `sync`/`status` already show elsewhere.
++    let commit_numbers: HashMap<&str, usize> = commits
++        .iter()
++        .enumerate()
++        .map(|(i, c)| (c.oid.as_str(), i + 1))
++        .collect();
++
+     let mut discussions: Vec<Discussion> = review_threads
+         .into_iter()
+         .map(|t| Discussion {
+@@ -66,6 +84,10 @@ pub async fn run(
+             path: Some(t.path),
+             line: t.line,
+             diff_hunk: t.comments.first().map(|c| c.diff_hunk.clone()),
++            commit_oid: t
++                .comments
++                .first()
++                .and_then(|c| c.original_commit_oid.clone()),
+             comments: t.comments,
+         })
+         .collect();
+@@ -75,6 +97,7 @@ pub async fn run(
+             path: None,
+             line: None,
+             diff_hunk: None,
++            commit_oid: None,
+             comments: conversation_comments,
+         });
+     }
+@@ -92,8 +115,10 @@ pub async fn run(
+     }
+ 
+     let skin = MadSkin::default();
++    let mut discussion_index = 0;
+     let mut all_resolved = true;
+     for discussion in &unresolved {
++        discussion_index += 1;
+         let mut rendered = String::new();
+         if let (Some(path), Some(diff_hunk)) = (&discussion.path, &discussion.diff_hunk) {
+             let hunk = diff::render_hunk(repo_path, path, diff_hunk, side_by_side).await?;
+@@ -101,14 +126,28 @@ pub async fn run(
+             rendered.push('\n');
+         }
+ 
++        match &discussion.path {
++            Some(path) => {
++                let location = match discussion.line {
++                    Some(line) => format!("{path}:{line}"),
++                    None => path.clone(),
++                };
++                let mut header_line = location;
++                if let Some(oid) = &discussion.commit_oid {
++                    let short = &oid[..oid.len().min(8)];
++                    let url = format!("https://github.com/{owner}/{repo}/commit/{oid}");
++                    header_line.push_str("  ");
++                    header_line.push_str(&hyperlink(&url, short));
++                    if let Some(n) = commit_numbers.get(oid.as_str()) {
++                        header_line.push_str(&format!(" #{n}"));
++                    }
++                }
++                rendered.push_str(&format!("\x1b[1m{header_line}\x1b[0m\n\n"));
++            }
++            None => rendered.push_str(&skin.term_text("## Conversation\n").to_string()),
++        }
++
+         let mut markdown = String::new();
+-        let header = match (&discussion.path, discussion.line) {
+-            (Some(path), Some(line)) => format!("## {path}:{line}"),
+-            (Some(path), None) => format!("## {path}"),
+-            (None, _) => "## Conversation".to_string(),
+-        };
+-        markdown.push_str(&header);
+-        markdown.push_str("\n\n");
+         for comment in &discussion.comments {
+             markdown.push_str(&format!(
+                 "**{}** *{}*\n\n{}\n\n---\n\n",
+@@ -120,11 +159,14 @@ pub async fn run(
+         let _ = execute!(io::stdout(), Clear(ClearType::All), MoveTo(0, 0));
+         page(&rendered).await?;
+         println!();
+-        print!("Resolve this discussion? (y/n): ");
++        print!(
++            "Resolve discussion {discussion_index}/{}? (y/n): ",
++            unresolved.len()
++        );
+         io::stdout().flush()?;
+ 
+         match read_key().unwrap_or(KeyCode::Enter) {
+-            KeyCode::Char('q') => return Ok(()),
++            KeyCode::Char('q') | KeyCode::Char('c') => return Ok(()),
+             KeyCode::Char('y') => {
+                 db::save_thread_resolution(
+                     pool,
+@@ -143,3 +185,10 @@ pub async fn run(
+     }
+     Ok(())
+ }
++
++/// Wraps `text` in an OSC 8 terminal hyperlink escape sequence pointing at
++/// `url`. Markdown itself has no link support in the flavor `termimad`
++/// renders, so this is applied outside of markdown rendering.
++fn hyperlink(url: &str, text: &str) -> String {
++    format!("\x1b]8;;{url}\x1b\\{text}\x1b]8;;\x1b\\")
++}

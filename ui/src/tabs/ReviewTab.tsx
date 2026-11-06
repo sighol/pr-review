@@ -2,18 +2,19 @@ import { useMemo, useState } from "react";
 import { CommentBox, describeRange } from "../components/CommentBox";
 import { ThreadBox } from "../components/ThreadBox";
 import { CONVERSATION_ID, isResolved, newCount, type FakeThread } from "../lib/threads";
+import { useRangeData } from "../lib/data";
 import { snippetFor } from "../lib/snippet";
-import { isRealDraft, pendingReplies, useStore, type Draft, type FileData } from "../store";
+import { isRealDraft, pendingReplies, threadLine, useStore, type Draft, type FileData } from "../store";
 
 const MAX_SNIPPET = 10;
 
 type Event = "APPROVE" | "COMMENT" | "REQUEST_CHANGES";
 
 function Snippet({ file, draft }: { file: FileData; draft: Draft }) {
-  const lines = useMemo(() => {
-    const full = file.versions.get(0)!;
-    return snippetFor({ oldText: full.oldText, newText: file.newText, diffText: full.diffText }, draft.range);
-  }, [file, draft.range]);
+  const { commits } = useStore();
+  const full = useMemo(() => ({ from: 0, to: commits.length }), [commits.length]);
+  const data = useRangeData(file, full);
+  const lines = useMemo(() => (data ? snippetFor(data, draft.range) : []), [data, draft.range]);
   const shown = lines.slice(0, MAX_SNIPPET);
   return (
     <div className="snippet">
@@ -123,12 +124,12 @@ export function ReviewTab() {
               <div className="review-item" key={t.id}>
                 <div className="review-item-head">
                   <span className="loc">
-                    {t.id === CONVERSATION_ID ? "Conversation" : `${fileByName.get(t.file!)?.path}:${t.line}`} · reply
+                    {t.id === CONVERSATION_ID ? "Conversation" : `${fileByName.get(t.file!)?.path}:${threadLine(t)}`} · reply
                   </span>
                   <ThreadStatus thread={t} />
                   <span className="spacer" />
                   {t.file && (
-                    <button className="link" onClick={() => jumpTo(t.file!, t.side, t.line)}>
+                    <button className="link" onClick={() => jumpTo(t.file!, t.side, threadLine(t))}>
                       Jump to line →
                     </button>
                   )}

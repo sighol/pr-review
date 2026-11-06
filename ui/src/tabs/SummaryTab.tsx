@@ -2,7 +2,7 @@ import { FileMatrix } from "../components/FileMatrix";
 import { Markdown } from "../components/Markdown";
 import { ThreadBox } from "../components/ThreadBox";
 import { CONVERSATION_ID, PR, isResolved, newCount, sortThreads } from "../lib/threads";
-import { useStore } from "../store";
+import { threadLine, useStore } from "../store";
 
 const excerpt = (s: string) => {
   const flat = s.replace(/\s+/g, " ").trim();
@@ -45,11 +45,11 @@ export function SummaryTab() {
           const n = newCount(t, r);
           const file = fileByName.get(t.file!);
           return (
-            <button className="index-row" key={t.id} onClick={() => jumpTo(t.file!, t.side, t.line, t.id)}>
+            <button className="index-row" key={t.id} onClick={() => jumpTo(t.file!, t.side, threadLine(t), t.id)}>
               <span className={`status ${resolved ? "resolved" : "open"}`}>{resolved ? "✓ Resolved" : "● Open"}</span>
               {n > 0 && <span className="badge-new">{n} new</span>}
               <span className="loc">
-                {file?.path}:{t.line}
+                {file?.path}:{threadLine(t)}{t.line === null ? " (outdated)" : ""}
               </span>
               <span className="excerpt">{excerpt(t.comments[t.comments.length - 1].body)}</span>
               <span className="jump">Jump →</span>

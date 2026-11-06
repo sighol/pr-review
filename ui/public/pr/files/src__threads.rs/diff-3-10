@@ -1,0 +1,45 @@
+diff --git a/src/threads.rs b/src/threads.rs
+index 02a9590..8e49c8f 100644
+--- a/src/threads.rs
++++ b/src/threads.rs
+@@ -68,8 +68,9 @@ pub async fn run(
+ 
+     eprintln!("Fetching origin (for commit numbers)...");
+     git::fetch_origin(repo_path).await?;
+-    git::ensure_commits_available(repo_path, &pr_refs.base_oid, &pr_refs.head_oid).await?;
+-    let commits = git::commits_in_range(repo_path, &pr_refs.base_oid, &pr_refs.head_oid).await?;
++    git::ensure_commits_available(repo_path, &[&pr_refs.base_ref_name, &pr_refs.head_oid]).await?;
++    let commits =
++        git::commits_in_range(repo_path, &pr_refs.base_ref_name, &pr_refs.head_oid).await?;
+     // 1-based, matching the numbering `sync`/`status` already show elsewhere.
+     let commit_numbers: HashMap<&str, usize> = commits
+         .iter()
+@@ -147,12 +148,19 @@ pub async fn run(
+             None => rendered.push_str(&skin.term_text("## Conversation\n").to_string()),
+         }
+ 
++        let resolved_commit = resolutions.get(&discussion.id);
++
+         let mut markdown = String::new();
+         for comment in &discussion.comments {
+             markdown.push_str(&format!(
+                 "**{}** *{}*\n\n{}\n\n---\n\n",
+                 comment.author, comment.created_at, comment.body
+             ));
++            if let Some(resolved) = resolved_commit
++                && resolved == &comment.id
++            {
++                markdown.push_str("\n**\x1b[34m--- NEW COMMENTS ---\x1b[0m **\n\n")
++            }
+         }
+         rendered.push_str(&skin.term_text(&markdown).to_string());
+ 
+@@ -166,7 +174,7 @@ pub async fn run(
+         io::stdout().flush()?;
+ 
+         match read_key().unwrap_or(KeyCode::Enter) {
+-            KeyCode::Char('q') | KeyCode::Char('c') => return Ok(()),
++            KeyCode::Char('q') => return Ok(()),
+             KeyCode::Char('y') => {
+                 db::save_thread_resolution(
+                     pool,

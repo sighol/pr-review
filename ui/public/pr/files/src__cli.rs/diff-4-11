@@ -1,0 +1,54 @@
+diff --git a/src/cli.rs b/src/cli.rs
+index a6ade7a..7c2ddc5 100644
+--- a/src/cli.rs
++++ b/src/cli.rs
+@@ -8,6 +8,9 @@ use clap::{Parser, Subcommand};
+ pub struct Cli {
+     #[command(subcommand)]
+     pub command: Command,
++
++    #[arg(short = 'C', long, global = true)]
++    pub repo: Option<PathBuf>,
+ }
+ 
+ #[derive(Subcommand)]
+@@ -15,11 +18,10 @@ pub enum Command {
+     /// Display the grid and enter interactive mode. Reuses the last-reviewed
+     /// PR for this repo (owner/repo comes from the `origin` remote) if
+     /// `pr_number` is omitted.
++    #[command(visible_alias = "d")]
+     Diff {
+         #[arg(value_parser = parse_pr_number)]
+         pr_number: Option<u64>,
+-        #[arg(long)]
+-        repo: Option<PathBuf>,
+         /// Refetch PR metadata from GitHub and `git fetch origin`, instead of
+         /// resolving the branch from local git state.
+         #[arg(long)]
+@@ -34,12 +36,11 @@ pub enum Command {
+         side_by_side: bool,
+     },
+     /// Show the grid without entering interactive mode.
++    #[command(visible_alias = "s")]
+     Status {
+         #[arg(value_parser = parse_pr_number)]
+         pr_number: Option<u64>,
+         #[arg(long)]
+-        repo: Option<PathBuf>,
+-        #[arg(long)]
+         fetch: bool,
+         #[arg(long)]
+         commit: Option<String>,
+@@ -47,11 +48,10 @@ pub enum Command {
+     /// Walk through PR discussions (review-comment threads and the top-level
+     /// conversation) one at a time, `git add -p`-style, and locally track
+     /// which ones you've resolved. Always refetches from GitHub.
++    #[command(visible_alias = "t")]
+     Threads {
+         #[arg(value_parser = parse_pr_number)]
+         pr_number: Option<u64>,
+-        #[arg(long)]
+-        repo: Option<PathBuf>,
+         /// Render each discussion's diff hunk side-by-side. Only takes effect
+         /// when `delta` is installed; ignored otherwise.
+         #[arg(long)]

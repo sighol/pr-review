@@ -1,6 +1,15 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { approveThrough } from "./lib/approval";
 import type { LineRange, Side } from "./lib/diff";
+import {
+  asOfRange,
+  commentable,
+  defaultRange,
+  rangeForSide,
+  rangeForThread,
+  threadPlacement,
+  type CommitRange,
+} from "./lib/range";
 import { parseLine, parseRoute, routeUrl, type Route, type Tab } from "./lib/route";
 import { ALL_THREADS, lastCommentId, type FakeThread, type Resolution } from "./lib/threads";
 
@@ -13,24 +22,18 @@ export interface Commit {
   subject: string;
 }
 
-/** The old text and diff when diffing from commit `k` (0 is the PR base) to the file's latest commit. */
-export interface FileVersion {
-  oldText: string;
-  diffText: string;
-}
-
 export interface FileData {
   /** Same as `path`; the key used in URLs and drafts. */
   name: string;
   path: string;
+  /** Directory the file's states and diffs are stored under. */
+  dir: string;
   added: number;
   removed: number;
   /** Commit numbers (1-based) that touched this file. */
   changedBy: number[];
-  /** The file at its latest commit. */
+  /** The file at its latest commit (the PR head). */
   newText: string;
-  /** Keyed by start commit k. Key 0 is the full PR diff. */
-  versions: ReadonlyMap<number, FileVersion>;
 }
 
 /** Seed approvals for the prototype: file path -> approved through this commit. */
@@ -60,6 +63,9 @@ export interface JumpTarget {
 
 export const draftKey = (file: string, r: LineRange) => `${file}|${r.side}:${r.start}-${r.end}`;
 
+/** The line a thread is shown at when its placement doesn't matter (indexes, labels). */
+export const threadLine = (t: FakeThread) => t.line ?? t.originalLine;
+
 interface Store {
   files: FileData[];
   fileByName: ReadonlyMap<string, FileData>;
@@ -70,6 +76,17 @@ interface Store {
   approvals: ReadonlyMap<string, ReadonlySet<number>>;
   approveFile: (file: FileData) => void;
   unapproveFile: (file: FileData) => void;
+
+  /** The commit range a file is currently viewed at. */
+  rangeFor: (file: FileData) => CommitRange;
+  setRange: (path: string, range: CommitRange) => void;
+  /** Drops a file's own range so it follows the all-files range, or since-approval. */
+  resetRange: (path: string) => void;
+  globalRange: CommitRange | null;
+  /** Sets one range for every file (null clears it). */
+  setAllRanges: (range: CommitRange | null) => void;
+  /** Shows the file as the reviewer saw it when commenting: PR base to the comment's commit. */
+  viewAsOf: (thread: FakeThread) => void;
 
   tab: Tab;
   setTab: (t: Tab) => void;
@@ -117,6 +134,16 @@ const currentRoute = () => parseRoute(location.pathname, location.search);
 
 const threadOf = (r: Route) => (r.thread ? ALL_THREADS.find((t) => t.id === r.thread && t.file) : undefined);
 
+function computeRange(
+  file: FileData,
+  overrides: ReadonlyMap<string, CommitRange>,
+  global: CommitRange | null,
+  approvals: ReadonlyMap<string, ReadonlySet<number>>,
+  headN: number,
+): CommitRange {
+  return overrides.get(file.path) ?? global ?? defaultRange(file.changedBy, approvals.get(file.path), headN);
+}
+
 export function StoreProvider({
   files,
   commits,
@@ -126,17 +153,82 @@ export function StoreProvider({
   commits: Commit[];
   children: ReactNode;
 }) {
+  const headN = commits.length;
   const fileNames = useMemo(() => new Set(files.map((f) => f.name)), [files]);
+  const fileByName = useMemo(() => new Map(files.map((f) => [f.name, f])), [files]);
   const validFile = useCallback(
     (name: string | undefined, fallback: string) => (name && fileNames.has(name) ? name : fallback),
     [fileNames],
   );
 
+  // Ranges and approvals are mirrored in refs so navigation can read the latest values synchronously.
+  const [rangeOverrides, setRangeOverrides] = useState<ReadonlyMap<string, CommitRange>>(new Map());
+  const [globalRange, setGlobalRange] = useState<CommitRange | null>(null);
+  const [approvals, setApprovals] = useState<ReadonlyMap<string, ReadonlySet<number>>>(
+    () =>
+      new Map(
+        files.flatMap((f) => {
+          const through = SEED_APPROVED_THROUGH[f.path];
+          return through ? [[f.path, approveThrough(f.changedBy, through)] as const] : [];
+        }),
+      ),
+  );
+  const overridesRef = useRef(rangeOverrides);
+  const globalRef = useRef(globalRange);
+  const approvalsRef = useRef(approvals);
+  approvalsRef.current = approvals;
+
+  const rangeFor = useCallback(
+    (file: FileData) => computeRange(file, rangeOverrides, globalRange, approvals, headN),
+    [rangeOverrides, globalRange, approvals, headN],
+  );
+  const currentRangeRef = (file: FileData) =>
+    computeRange(file, overridesRef.current, globalRef.current, approvalsRef.current, headN);
+
+  const setRange = useCallback((path: string, range: CommitRange) => {
+    const next = new Map(overridesRef.current).set(path, range);
+    overridesRef.current = next;
+    setRangeOverrides(next);
+  }, []);
+
+  const resetRange = useCallback((path: string) => {
+    const next = new Map(overridesRef.current);
+    next.delete(path);
+    overridesRef.current = next;
+    setRangeOverrides(next);
+  }, []);
+
+  const setAllRanges = useCallback((range: CommitRange | null) => {
+    globalRef.current = range;
+    setGlobalRange(range);
+    overridesRef.current = new Map();
+    setRangeOverrides(overridesRef.current);
+  }, []);
+
+  /** Changes the file's range if the target isn't visible or commentable in it. */
+  const ensureVisible = (r: Route, fileName: string) => {
+    const file = fileByName.get(fileName);
+    if (!file) return;
+    const current = currentRangeRef(file);
+    const thread = threadOf(r);
+    if (thread) {
+      if (threadPlacement(thread, current, file.changedBy) === null) setRange(file.path, rangeForThread(thread, current, headN));
+      return;
+    }
+    const l = parseLine(r.line);
+    if (l) {
+      const ok = commentable(current, file.changedBy);
+      if (!(l.side === "old" ? ok.left : ok.right)) setRange(file.path, rangeForSide(l.side, current, headN));
+    }
+  };
+
   const resolveJump = useCallback(
     (r: Route, file: string, tick: number): JumpTarget | null => {
       if (r.tab !== "diff") return null;
       const thread = threadOf(r);
-      if (thread) return { file: thread.file!, side: thread.side, line: thread.line, threadId: thread.id, tick };
+      if (thread) {
+        return { file: thread.file!, side: thread.side, line: thread.line ?? thread.originalLine, threadId: thread.id, tick };
+      }
       const l = parseLine(r.line);
       return l ? { file, side: l.side, line: l.line, tick } : null;
     },
@@ -157,32 +249,36 @@ export function StoreProvider({
   currentFileRef.current = currentFile;
   const tickRef = useRef(1);
 
-  const apply = useCallback(
-    (r: Route) => {
-      setTabState(r.tab);
-      if (r.tab !== "diff") return;
-      const file = validFile(threadOf(r)?.file ?? r.file, currentFileRef.current);
-      setCurrentFileState(file);
-      const target = resolveJump(r, file, ++tickRef.current);
-      if (target) setJump(target);
-    },
-    [validFile, resolveJump],
-  );
+  useEffect(() => {
+    // A deep link to a thread or line must open at a range that shows it.
+    const r = currentRoute();
+    if (r.tab === "diff") ensureVisible(r, initial.file);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const navigate = useCallback(
-    (r: Route) => {
-      const url = routeUrl(r);
-      if (url !== location.pathname + location.search) history.pushState(null, "", url);
-      apply(r);
-    },
-    [apply],
-  );
+  const apply = (r: Route) => {
+    setTabState(r.tab);
+    if (r.tab !== "diff") return;
+    const file = validFile(threadOf(r)?.file ?? r.file, currentFileRef.current);
+    setCurrentFileState(file);
+    ensureVisible(r, file);
+    const target = resolveJump(r, file, ++tickRef.current);
+    if (target) setJump(target);
+  };
+  const applyRef = useRef(apply);
+  applyRef.current = apply;
+
+  const navigate = useCallback((r: Route) => {
+    const url = routeUrl(r);
+    if (url !== location.pathname + location.search) history.pushState(null, "", url);
+    applyRef.current(r);
+  }, []);
 
   useEffect(() => {
-    const onPop = () => apply(currentRoute());
+    const onPop = () => applyRef.current(currentRoute());
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
-  }, [apply]);
+  }, []);
 
   const setTab = useCallback(
     (t: Tab) => navigate(t === "diff" ? { tab: t, file: currentFileRef.current } : { tab: t }),
@@ -193,6 +289,14 @@ export function StoreProvider({
     (file: string, side: Side, line: number, threadId?: string) =>
       navigate(threadId ? { tab: "diff", file, thread: threadId } : { tab: "diff", file, line: `${side}:${line}` }),
     [navigate],
+  );
+  const viewAsOf = useCallback(
+    (thread: FakeThread) => {
+      if (!thread.file) return;
+      setRange(thread.file, asOfRange(thread));
+      navigate({ tab: "diff", file: thread.file, thread: thread.id });
+    },
+    [navigate, setRange],
   );
   const clearJump = useCallback(() => setJump(null), []);
 
@@ -208,15 +312,6 @@ export function StoreProvider({
       ),
   );
   const [reviewBody, setReviewBody] = useState("");
-  const [approvals, setApprovals] = useState<ReadonlyMap<string, ReadonlySet<number>>>(
-    () =>
-      new Map(
-        files.flatMap((f) => {
-          const through = SEED_APPROVED_THROUGH[f.path];
-          return through ? [[f.path, approveThrough(f.changedBy, through)] as const] : [];
-        }),
-      ),
-  );
 
   const approveFile = useCallback((file: FileData) => {
     setApprovals((prev) => new Map(prev).set(file.path, approveThrough(file.changedBy)));
@@ -269,8 +364,6 @@ export function StoreProvider({
     setResolutions((prev) => new Map(prev).set(t.id, { through: prev.get(t.id)?.through ?? null, reopened: true }));
   }, []);
 
-  const fileByName = useMemo(() => new Map(files.map((f) => [f.name, f])), [files]);
-
   const value = useMemo<Store>(
     () => ({
       files,
@@ -280,6 +373,12 @@ export function StoreProvider({
       approvals,
       approveFile,
       unapproveFile,
+      rangeFor,
+      setRange,
+      resetRange,
+      globalRange,
+      setAllRanges,
+      viewAsOf,
       tab,
       setTab,
       currentFile,
@@ -307,6 +406,12 @@ export function StoreProvider({
       approvals,
       approveFile,
       unapproveFile,
+      rangeFor,
+      setRange,
+      resetRange,
+      globalRange,
+      setAllRanges,
+      viewAsOf,
       tab,
       setTab,
       currentFile,

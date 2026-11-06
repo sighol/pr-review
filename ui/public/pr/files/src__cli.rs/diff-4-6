@@ -1,0 +1,28 @@
+diff --git a/src/cli.rs b/src/cli.rs
+index a6ade7a..4c6ad38 100644
+--- a/src/cli.rs
++++ b/src/cli.rs
+@@ -15,6 +15,7 @@ pub enum Command {
+     /// Display the grid and enter interactive mode. Reuses the last-reviewed
+     /// PR for this repo (owner/repo comes from the `origin` remote) if
+     /// `pr_number` is omitted.
++    #[command(visible_alias = "d")]
+     Diff {
+         #[arg(value_parser = parse_pr_number)]
+         pr_number: Option<u64>,
+@@ -34,6 +35,7 @@ pub enum Command {
+         side_by_side: bool,
+     },
+     /// Show the grid without entering interactive mode.
++    #[command(visible_alias = "s")]
+     Status {
+         #[arg(value_parser = parse_pr_number)]
+         pr_number: Option<u64>,
+@@ -47,6 +49,7 @@ pub enum Command {
+     /// Walk through PR discussions (review-comment threads and the top-level
+     /// conversation) one at a time, `git add -p`-style, and locally track
+     /// which ones you've resolved. Always refetches from GitHub.
++    #[command(visible_alias = "t")]
+     Threads {
+         #[arg(value_parser = parse_pr_number)]
+         pr_number: Option<u64>,

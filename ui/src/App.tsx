@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { fetchText } from "./lib/data";
 import { routeUrl } from "./lib/route";
 import { PR, isResolved, newCount } from "./lib/threads";
 import { StoreProvider, useStore, type Commit, type FileData, type Tab } from "./store";
@@ -8,7 +9,7 @@ import { SummaryTab } from "./tabs/SummaryTab";
 
 interface Manifest {
   commits: Commit[];
-  files: { path: string; dir: string; added: number; removed: number; changedBy: number[]; from: number[] }[];
+  files: { path: string; dir: string; added: number; removed: number; changedBy: number[] }[];
 }
 
 interface Loaded {
@@ -16,32 +17,20 @@ interface Loaded {
   commits: Commit[];
 }
 
-const fetchText = (url: string) => fetch(url).then((r) => r.text());
-
-async function loadAll(): Promise<Loaded> {
+export async function loadAll(): Promise<Loaded> {
   const manifest: Manifest = await fetch("/pr/manifest.json").then((r) => r.json());
   const files = await Promise.all(
-    manifest.files.map(async (f): Promise<FileData> => {
-      const dir = `/pr/files/${f.dir}`;
-      const [newText, versions] = await Promise.all([
-        fetchText(`${dir}/new`),
-        Promise.all(
-          f.from.map(async (k) => {
-            const [oldText, diffText] = await Promise.all([fetchText(`${dir}/old-${k}`), fetchText(`${dir}/diff-${k}`)]);
-            return [k, { oldText, diffText }] as const;
-          }),
-        ),
-      ]);
-      return {
+    manifest.files.map(
+      async (f): Promise<FileData> => ({
         name: f.path,
         path: f.path,
+        dir: f.dir,
         added: f.added,
         removed: f.removed,
         changedBy: f.changedBy,
-        newText,
-        versions: new Map(versions),
-      };
-    }),
+        newText: await fetchText(`/pr/files/${f.dir}/text-${Math.max(...f.changedBy)}`),
+      }),
+    ),
   );
   return { files, commits: manifest.commits };
 }

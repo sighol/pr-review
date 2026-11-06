@@ -1,0 +1,12 @@
+diff --git a/src/main.rs b/src/main.rs
+index e5c1025..0462882 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -86,6 +86,7 @@ async fn main() -> Result<()> {
+     if let Command::Threads {
+         pr_number,
+         side_by_side,
++        fetch: _,
+     } = &cli.command
+     {
+         let (owner, repo_name, pool, pr_number, _) = resolve_pr(&repo_path, *pr_number).await?;

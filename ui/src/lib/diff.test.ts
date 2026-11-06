@@ -15,21 +15,22 @@ import {
 interface ManifestFile {
   path: string;
   dir: string;
-  from: number[];
+  changedBy: number[];
 }
 const manifest: { files: ManifestFile[] } = JSON.parse(readFileSync("public/pr/manifest.json", "utf8"));
 
-function load(dir: string, from: number) {
+/** Old text at state `from`, new text at state `to`, and the git diff between them. */
+function load(dir: string, from: number, to: number) {
   const read = (f: string) => readFileSync(`public/pr/files/${dir}/${f}`, "utf8");
   return {
-    oldLines: textToLines(read(`old-${from}`)),
-    newLines: textToLines(read("new")),
-    hunks: parseUnifiedDiff(read(`diff-${from}`)),
+    oldLines: textToLines(read(`text-${from}`)),
+    newLines: textToLines(read(`text-${to}`)),
+    hunks: parseUnifiedDiff(read(`diff-${from}-${to}`)),
   };
 }
 
-/** src/main.rs diffed from commit 17: two small hunks. */
-const loadSmall = () => load("src__main.rs", 17);
+/** src/main.rs from state 17 to state 18: two small hunks. */
+const loadSmall = () => load("src__main.rs", 17, 18);
 
 function checkCoverage({ oldLines, newLines, hunks }: ReturnType<typeof load>, wholeFile: boolean) {
   const rows = buildRows(oldLines, newLines, hunks, { wholeFile, expandedGaps: new Set() });
@@ -58,18 +59,21 @@ function checkCoverage({ oldLines, newLines, hunks }: ReturnType<typeof load>, w
 
 describe("buildRows covers every line exactly once, in order", () => {
   for (const f of manifest.files) {
-    for (const from of f.from) {
-      for (const wholeFile of [false, true]) {
-        test(`${f.path} from #${from} wholeFile=${wholeFile}`, () => {
-          checkCoverage(load(f.dir, from), wholeFile);
-        });
+    const states = [0, ...f.changedBy];
+    for (let i = 0; i < states.length; i++) {
+      for (let j = i + 1; j < states.length; j++) {
+        for (const wholeFile of [false, true]) {
+          test(`${f.path} state ${states[i]}..${states[j]} wholeFile=${wholeFile}`, () => {
+            checkCoverage(load(f.dir, states[i], states[j]), wholeFile);
+          });
+        }
       }
     }
   }
 });
 
 describe("parseUnifiedDiff", () => {
-  test("main.rs from #17 has two hunks with expected shape", () => {
+  test("main.rs state 17..18 has two hunks with expected shape", () => {
     const { hunks } = loadSmall();
     expect(hunks).toHaveLength(2);
     expect(hunks[0]).toMatchObject({ oldStart: 9, oldCount: 7, newStart: 9, newCount: 7 });
