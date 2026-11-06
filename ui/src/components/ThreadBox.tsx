@@ -88,27 +88,29 @@ export function ReplyBox({ threadId, fileLang, preview }: { threadId: string; fi
     );
   }
   return (
-    <div className="reply-wrap">
-      <div className="comment-head">
-        <span>Draft reply</span>
-        <button className="link" onClick={() => setReply(threadId, null)}>
+    <div className="reply-draft">
+      <div className="draft-tag" aria-hidden>
+        DRAFT
+      </div>
+      <div className="reply-main">
+        <button className="link reply-delete" onClick={() => setReply(threadId, null)}>
           delete
         </button>
+        <textarea
+          autoFocus={text === ""}
+          className="reply-box"
+          value={text}
+          placeholder="Reply"
+          onChange={(e) => setReply(threadId, e.target.value)}
+          onBlur={() => text.trim() === "" && setReply(threadId, null)}
+        />
+        {preview && text.trim() !== "" && (
+          <div className="preview">
+            <div className="preview-label">Preview</div>
+            <Markdown text={text} fileLang={fileLang} />
+          </div>
+        )}
       </div>
-      <textarea
-        autoFocus={text === ""}
-        className="reply-box"
-        value={text}
-        placeholder="Reply"
-        onChange={(e) => setReply(threadId, e.target.value)}
-        onBlur={() => text.trim() === "" && setReply(threadId, null)}
-      />
-      {preview && text.trim() !== "" && (
-        <div className="preview">
-          <div className="preview-label">Preview</div>
-          <Markdown text={text} fileLang={fileLang} />
-        </div>
-      )}
     </div>
   );
 }
