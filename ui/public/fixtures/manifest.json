@@ -1,0 +1,27 @@
+[
+  {
+    "name": "small-main",
+    "label": "small: main.rs (a91e901)",
+    "path": "src/main.rs"
+  },
+  {
+    "name": "medium-grid",
+    "label": "medium: grid.rs (7dacc07)",
+    "path": "src/grid.rs"
+  },
+  {
+    "name": "medium-interactive",
+    "label": "medium: interactive.rs (7dacc07)",
+    "path": "src/interactive.rs"
+  },
+  {
+    "name": "large-github",
+    "label": "large: github.rs (76578ea)",
+    "path": "src/github.rs"
+  },
+  {
+    "name": "toml-cargo",
+    "label": "toml: Cargo.toml (03d10ae..6db66ac)",
+    "path": "Cargo.toml"
+  }
+]
