@@ -1,0 +1,322 @@
+{
+  "base": "76578ead011de9b33b83ede95c8515d4d41a3505",
+  "head": "a91e90183073a3b4d932640974e5129bc8a4a0e2",
+  "commits": [
+    {
+      "n": 1,
+      "oid": "6db66ac89880c61365f453556a2f2dbdbc004831",
+      "short": "6db66ac",
+      "subject": "Fix markdown render for threads"
+    },
+    {
+      "n": 2,
+      "oid": "1cb52e7d34806b10841d831135dc1b371d1153b0",
+      "short": "1cb52e7",
+      "subject": "Threads with commit hash link and commit number"
+    },
+    {
+      "n": 3,
+      "oid": "075b6a845935afba2b764a17fda8c927c9ed91c0",
+      "short": "075b6a8",
+      "subject": "Discussion index and ctr-c (ish)"
+    },
+    {
+      "n": 4,
+      "oid": "9cf473f2be9d9232254f10c047f6937b3f5e2bb3",
+      "short": "9cf473f",
+      "subject": "Rename Sync to Diff"
+    },
+    {
+      "n": 5,
+      "oid": "25ae9f7941c2e4dbbde798f3e9c40b00300b79b6",
+      "short": "25ae9f7",
+      "subject": "Just add some space"
+    },
+    {
+      "n": 6,
+      "oid": "e0db7a06ff9be96489f1fe7ee8722ec42d04fa3c",
+      "short": "e0db7a0",
+      "subject": "Add aliases"
+    },
+    {
+      "n": 7,
+      "oid": "5e4e68781e5772ab8ca71ceb80390ca0b512ab5c",
+      "short": "5e4e687",
+      "subject": "Set base_oid to the merge-base with origin/master"
+    },
+    {
+      "n": 8,
+      "oid": "feba48ab96ba9610f69ae7392e1f4358e97863ed",
+      "short": "feba48a",
+      "subject": "Change from APPROVAL to COMMITS"
+    },
+    {
+      "n": 9,
+      "oid": "863bfe674b1b56b4319fa41e73348e6a705887e4",
+      "short": "863bfe6",
+      "subject": "Handle Ctrl-C everywhere"
+    },
+    {
+      "n": 10,
+      "oid": "6682343acd3c93876411efdc3d687e201f1a793b",
+      "short": "6682343",
+      "subject": "Threads: Show where we left off"
+    },
+    {
+      "n": 11,
+      "oid": "ede8963987413a83bbaf43afb8ae562f76df17e8",
+      "short": "ede8963",
+      "subject": "repo is a global arg"
+    },
+    {
+      "n": 12,
+      "oid": "0ffcf0802a3bda781d4892885de1e9554ef62675",
+      "short": "0ffcf08",
+      "subject": "Exit in diff on 'q'"
+    },
+    {
+      "n": 13,
+      "oid": "7dacc077ba1ad4a66e17533c98e56976deeec4cf",
+      "short": "7dacc07",
+      "subject": "PR title"
+    },
+    {
+      "n": 14,
+      "oid": "aa23752e30d62bcc43140d2c0d5b3c57fc4eeef9",
+      "short": "aa23752",
+      "subject": "Add GET and SET just to change the selected PR"
+    },
+    {
+      "n": 15,
+      "oid": "c94e480fd3f5417427f4ae16181a845670bdd3c7",
+      "short": "c94e480",
+      "subject": "Link comment headers to their GitHub permalink"
+    },
+    {
+      "n": 16,
+      "oid": "77a5e2d83ed3ef5565348006e3c386e2d1f41e93",
+      "short": "77a5e2d",
+      "subject": "Github resolved"
+    },
+    {
+      "n": 17,
+      "oid": "7c65350f6e8b443ba6db4016078798b732832579",
+      "short": "7c65350",
+      "subject": "Add t --fetch as well"
+    },
+    {
+      "n": 18,
+      "oid": "a91e90183073a3b4d932640974e5129bc8a4a0e2",
+      "short": "a91e901",
+      "subject": "Traverse up to git dir"
+    }
+  ],
+  "files": [
+    {
+      "path": "Cargo.lock",
+      "dir": "Cargo.lock",
+      "added": 254,
+      "removed": 102,
+      "changedBy": [
+        1
+      ],
+      "from": [
+        0
+      ]
+    },
+    {
+      "path": "Cargo.toml",
+      "dir": "Cargo.toml",
+      "added": 2,
+      "removed": 1,
+      "changedBy": [
+        1
+      ],
+      "from": [
+        0
+      ]
+    },
+    {
+      "path": "migrations/0005_base_ref_name.sql",
+      "dir": "migrations__0005_base_ref_name.sql",
+      "added": 1,
+      "removed": 0,
+      "changedBy": [
+        7
+      ],
+      "from": [
+        0
+      ]
+    },
+    {
+      "path": "migrations/0006_pr_title.sql",
+      "dir": "migrations__0006_pr_title.sql",
+      "added": 1,
+      "removed": 0,
+      "changedBy": [
+        13
+      ],
+      "from": [
+        0
+      ]
+    },
+    {
+      "path": "src/cli.rs",
+      "dir": "src__cli.rs",
+      "added": 19,
+      "removed": 7,
+      "changedBy": [
+        4,
+        6,
+        11,
+        14,
+        17
+      ],
+      "from": [
+        0,
+        4,
+        6,
+        11,
+        14
+      ]
+    },
+    {
+      "path": "src/db.rs",
+      "dir": "src__db.rs",
+      "added": 23,
+      "removed": 15,
+      "changedBy": [
+        7,
+        13
+      ],
+      "from": [
+        0,
+        7
+      ]
+    },
+    {
+      "path": "src/diff.rs",
+      "dir": "src__diff.rs",
+      "added": 4,
+      "removed": 0,
+      "changedBy": [
+        12
+      ],
+      "from": [
+        0
+      ]
+    },
+    {
+      "path": "src/git.rs",
+      "dir": "src__git.rs",
+      "added": 21,
+      "removed": 6,
+      "changedBy": [
+        7
+      ],
+      "from": [
+        0
+      ]
+    },
+    {
+      "path": "src/github.rs",
+      "dir": "src__github.rs",
+      "added": 36,
+      "removed": 8,
+      "changedBy": [
+        2,
+        7,
+        13,
+        15,
+        16
+      ],
+      "from": [
+        0,
+        2,
+        7,
+        13,
+        15
+      ]
+    },
+    {
+      "path": "src/grid.rs",
+      "dir": "src__grid.rs",
+      "added": 56,
+      "removed": 8,
+      "changedBy": [
+        8,
+        13
+      ],
+      "from": [
+        0,
+        8
+      ]
+    },
+    {
+      "path": "src/interactive.rs",
+      "dir": "src__interactive.rs",
+      "added": 49,
+      "removed": 5,
+      "changedBy": [
+        5,
+        9,
+        13
+      ],
+      "from": [
+        0,
+        5,
+        9
+      ]
+    },
+    {
+      "path": "src/main.rs",
+      "dir": "src__main.rs",
+      "added": 107,
+      "removed": 37,
+      "changedBy": [
+        4,
+        7,
+        11,
+        13,
+        14,
+        17,
+        18
+      ],
+      "from": [
+        0,
+        4,
+        7,
+        11,
+        13,
+        14,
+        17
+      ]
+    },
+    {
+      "path": "src/threads.rs",
+      "dir": "src__threads.rs",
+      "added": 96,
+      "removed": 15,
+      "changedBy": [
+        1,
+        2,
+        3,
+        7,
+        9,
+        10,
+        15,
+        16
+      ],
+      "from": [
+        0,
+        1,
+        2,
+        3,
+        7,
+        9,
+        10,
+        15
+      ]
+    }
+  ]
+}

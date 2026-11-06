@@ -12,52 +12,65 @@ import {
   type Row,
 } from "./diff";
 
-const FIXTURES = ["small-main", "medium-grid", "medium-interactive", "large-github", "toml-cargo"];
+interface ManifestFile {
+  path: string;
+  dir: string;
+  from: number[];
+}
+const manifest: { files: ManifestFile[] } = JSON.parse(readFileSync("public/pr/manifest.json", "utf8"));
 
-function load(name: string) {
-  const read = (f: string) => readFileSync(`public/fixtures/${name}/${f}`, "utf8");
+function load(dir: string, from: number) {
+  const read = (f: string) => readFileSync(`public/pr/files/${dir}/${f}`, "utf8");
   return {
-    oldLines: textToLines(read("old")),
+    oldLines: textToLines(read(`old-${from}`)),
     newLines: textToLines(read("new")),
-    hunks: parseUnifiedDiff(read("diff")),
+    hunks: parseUnifiedDiff(read(`diff-${from}`)),
   };
 }
 
+/** src/main.rs diffed from commit 17: two small hunks. */
+const loadSmall = () => load("src__main.rs", 17);
+
+function checkCoverage({ oldLines, newLines, hunks }: ReturnType<typeof load>, wholeFile: boolean) {
+  const rows = buildRows(oldLines, newLines, hunks, { wholeFile, expandedGaps: new Set() });
+  const oldSeen: number[] = [];
+  const newSeen: number[] = [];
+  for (const r of rows) {
+    if (r.type === "gap") {
+      for (let k = 0; k < r.count; k++) {
+        oldSeen.push(r.oldStart + k);
+        newSeen.push(r.newStart + k);
+      }
+    } else {
+      if (r.left) {
+        oldSeen.push(r.left.lineNo);
+        expect(r.left.text).toBe(oldLines[r.left.lineNo - 1]);
+      }
+      if (r.right) {
+        newSeen.push(r.right.lineNo);
+        expect(r.right.text).toBe(newLines[r.right.lineNo - 1]);
+      }
+    }
+  }
+  expect(oldSeen).toEqual(oldLines.map((_, i) => i + 1));
+  expect(newSeen).toEqual(newLines.map((_, i) => i + 1));
+}
+
 describe("buildRows covers every line exactly once, in order", () => {
-  for (const name of FIXTURES) {
-    for (const wholeFile of [false, true]) {
-      test(`${name} wholeFile=${wholeFile}`, () => {
-        const { oldLines, newLines, hunks } = load(name);
-        const rows = buildRows(oldLines, newLines, hunks, { wholeFile, expandedGaps: new Set() });
-        const oldSeen: number[] = [];
-        const newSeen: number[] = [];
-        for (const r of rows) {
-          if (r.type === "gap") {
-            for (let k = 0; k < r.count; k++) {
-              oldSeen.push(r.oldStart + k);
-              newSeen.push(r.newStart + k);
-            }
-          } else {
-            if (r.left) {
-              oldSeen.push(r.left.lineNo);
-              expect(r.left.text).toBe(oldLines[r.left.lineNo - 1]);
-            }
-            if (r.right) {
-              newSeen.push(r.right.lineNo);
-              expect(r.right.text).toBe(newLines[r.right.lineNo - 1]);
-            }
-          }
-        }
-        expect(oldSeen).toEqual(oldLines.map((_, i) => i + 1));
-        expect(newSeen).toEqual(newLines.map((_, i) => i + 1));
-      });
+  for (const f of manifest.files) {
+    for (const from of f.from) {
+      for (const wholeFile of [false, true]) {
+        test(`${f.path} from #${from} wholeFile=${wholeFile}`, () => {
+          checkCoverage(load(f.dir, from), wholeFile);
+        });
+      }
     }
   }
 });
 
 describe("parseUnifiedDiff", () => {
-  test("small-main has two hunks with expected shape", () => {
-    const { hunks } = load("small-main");
+  test("main.rs from #17 has two hunks with expected shape", () => {
+    const { hunks } = loadSmall();
     expect(hunks).toHaveLength(2);
     expect(hunks[0]).toMatchObject({ oldStart: 9, oldCount: 7, newStart: 9, newCount: 7 });
     expect(hunks[0].lines.filter((l) => l.kind === "del")).toHaveLength(1);
@@ -114,7 +127,7 @@ describe("segmentsFor", () => {
 });
 
 describe("drag clamping", () => {
-  const { oldLines, newLines, hunks } = load("small-main");
+  const { oldLines, newLines, hunks } = loadSmall();
   const rows: Row[] = buildRows(oldLines, newLines, hunks, { wholeFile: false, expandedGaps: new Set() });
 
   test("cannot cross a gap row", () => {

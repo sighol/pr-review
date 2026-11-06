@@ -1,0 +1,14 @@
+diff --git a/src/cli.rs b/src/cli.rs
+index 3d79e49..c67f767 100644
+--- a/src/cli.rs
++++ b/src/cli.rs
+@@ -56,6 +56,9 @@ pub enum Command {
+         /// when `delta` is installed; ignored otherwise.
+         #[arg(long)]
+         side_by_side: bool,
++        /// no-op so far, just so I can run both diff --fetch and threads --fetch.
++        #[arg(long)]
++        fetch: bool,
+     },
+     /// Print the currently active PR number for this repo, or exit 1 if
+     /// none is set.

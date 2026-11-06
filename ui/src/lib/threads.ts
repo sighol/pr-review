@@ -9,7 +9,7 @@ export interface FakeComment {
 
 export interface FakeThread {
   id: string;
-  /** Fixture name of the file this thread is on; null for the PR conversation. */
+  /** Path of the file this thread is on; null for the PR conversation. */
   file: string | null;
   side: Side;
   line: number;
@@ -62,16 +62,17 @@ export function sortThreads(threads: FakeThread[], resolutions: ReadonlyMap<stri
 
 export const PR = {
   number: 128,
-  title: "Walk up to the git root and show the PR title in the grid",
+  title: "Thread review improvements, PR title in the grid, and repo discovery",
   author: "sigurd",
   body: `## What
 
-\`pr-review\` now works from any subdirectory of a repo, and the grid view shows which PR you are looking at.
+A batch of quality-of-life changes to \`pr-review\`, mostly around the \`threads\` flow.
 
-- Walk up from the current directory to find the repo root (\`.git\` or \`.jj\`) when \`--repo\` is not given.
-- Thread \`pr_number\`, \`pr_title\` and \`pr_url\` through \`render_grid\` and \`redraw\`, and render the number as a clickable terminal hyperlink.
-- Fetch the PR title from GitHub and store it (migration \`0006\`).
-- Bump a few dependencies.
+- **Threads:** show the commit each comment was made on, mark where you left off, surface GitHub's own resolved flag, and link every comment to its permalink.
+- **Active PR:** \`get\` and \`set\` subcommands to change the selected PR, and \`--fetch\` on \`threads\` as well as \`diff\`.
+- **Grid:** show the PR number (as a clickable terminal hyperlink) and title above the file matrix.
+- **Repo discovery:** walk up from the current directory to the repo root (\`.git\` or \`.jj\`) when \`--repo\` is not given.
+- **Base:** use the merge-base with the base branch instead of the branch tip (migration \`0005\`), and store the PR title (migration \`0006\`).
 
 ## Notes for reviewers
 
@@ -79,9 +80,10 @@ The hyperlink uses an OSC 8 escape sequence, so terminals without support just s
 
 | Area | Files |
 | --- | --- |
-| Repo discovery | \`main.rs\` |
-| Grid header | \`grid.rs\`, \`interactive.rs\` |
-| Plumbing | \`github.rs\`, \`Cargo.toml\` |
+| Threads | \`threads.rs\`, \`github.rs\` |
+| CLI | \`cli.rs\`, \`main.rs\` |
+| Grid and prompts | \`grid.rs\`, \`interactive.rs\` |
+| Storage | \`db.rs\`, \`migrations/\` |
 
 \`\`\`rust
 fn traverse_up_to_git_repo(path: &Path) -> PathBuf
@@ -92,9 +94,9 @@ fn traverse_up_to_git_repo(path: &Path) -> PathBuf
 export const ALL_THREADS: FakeThread[] = [
   {
     id: "t1",
-    file: "small-main",
+    file: "src/main.rs",
     side: "new",
-    line: 12,
+    line: 42,
     githubResolved: false,
     comments: [
       { id: "c1", author: "alice", when: "3 days ago", body: "Do we really need `PathBuf` here, or can `traverse_up_to_git_repo` borrow?" },
@@ -103,7 +105,7 @@ export const ALL_THREADS: FakeThread[] = [
   },
   {
     id: "t2",
-    file: "small-main",
+    file: "src/main.rs",
     side: "new",
     line: 47,
     githubResolved: true,
@@ -114,52 +116,88 @@ export const ALL_THREADS: FakeThread[] = [
     ],
   },
   {
-    id: "t4",
-    file: "small-main",
+    id: "t3",
+    file: "src/main.rs",
     side: "new",
-    line: 58,
+    line: 73,
     githubResolved: false,
     resolvedThrough: "c5",
     comments: [
-      { id: "c5", author: "carol", when: "2 days ago", body: "Nice, walking up to the repo root makes `--repo` optional in practice." },
-      { id: "c6", author: "alice", when: "5 hours ago", body: "Does this also handle git worktrees, where `.git` is a file rather than a directory?" },
-      { id: "c7", author: "bob", when: "1 hour ago", body: "Good catch, `is_dir()` misses that. I'll switch to `exists()`." },
+      { id: "c5", author: "carol", when: "2 days ago", body: "Nice, `set` fetching the PR up front avoids the confusing 'no PR found' error later." },
+      { id: "c6", author: "alice", when: "5 hours ago", body: "Does `set` also reset the stored approvals when you switch PRs?" },
+      { id: "c7", author: "bob", when: "1 hour ago", body: "Good question. Approvals are keyed by PR number, so no, they stay." },
     ],
   },
   {
-    id: "t3",
-    file: "medium-grid",
+    id: "t4",
+    file: "src/threads.rs",
     side: "new",
-    line: 31,
+    line: 170,
     githubResolved: false,
-    comments: [{ id: "c8", author: "carol", when: "1 day ago", body: "Could this header move into its own `render_header` function?" }],
+    comments: [{ id: "c8", author: "carol", when: "1 day ago", body: "Could the 'NEW COMMENTS' divider use the same colour as the rest of the headings?" }],
   },
   {
     id: "t5",
-    file: "medium-interactive",
+    file: "src/threads.rs",
     side: "new",
-    line: 33,
-    githubResolved: false,
-    resolvedThrough: "c9",
+    line: 95,
+    githubResolved: true,
+    resolvedThrough: "c10",
     comments: [
-      { id: "c9", author: "alice", when: "2 days ago", body: "These `redraw` call sites keep growing arguments. Worth a small struct?" },
-      { id: "c10", author: "sigurd", when: "2 days ago", body: "Agreed, but I'd rather do that as a follow-up." },
+      { id: "c9", author: "alice", when: "2 days ago", body: "Is `Some(t.is_resolved)` right here? The conversation case below uses `None`." },
+      { id: "c10", author: "sigurd", when: "2 days ago", body: "Yes. The top-level conversation has no resolved concept on GitHub." },
     ],
   },
   {
     id: "t6",
-    file: "toml-cargo",
+    file: "Cargo.toml",
+    side: "old",
+    line: 13,
+    githubResolved: false,
+    comments: [{ id: "c11", author: "bob", when: "4 hours ago", body: "What was the reason for staying on `crossterm` 0.28 before?" }],
+  },
+  {
+    id: "t7",
+    file: "Cargo.toml",
     side: "new",
     line: 13,
     githubResolved: false,
     comments: [
       {
-        id: "c11",
+        id: "c12",
         author: "bob",
         when: "4 hours ago",
         body: "Is the `crossterm` bump needed for this PR?\n\n```suggestion\ncrossterm = \"0.28\"\n```",
       },
     ],
+  },
+  {
+    id: "t8",
+    file: "src/grid.rs",
+    side: "new",
+    line: 32,
+    githubResolved: false,
+    comments: [{ id: "c13", author: "carol", when: "1 day ago", body: "Could this header move into its own `render_header` function?" }],
+  },
+  {
+    id: "t9",
+    file: "src/github.rs",
+    side: "new",
+    line: 131,
+    githubResolved: true,
+    resolvedThrough: "c15",
+    comments: [
+      { id: "c14", author: "alice", when: "3 days ago", body: "Why the `serde(rename)` instead of `rename_all = \"camelCase\"` on the struct?" },
+      { id: "c15", author: "sigurd", when: "3 days ago", body: "Only this one field is camelCase in our query; the rest are fine as-is." },
+    ],
+  },
+  {
+    id: "t10",
+    file: "src/db.rs",
+    side: "new",
+    line: 119,
+    githubResolved: false,
+    comments: [{ id: "c16", author: "bob", when: "6 hours ago", body: "Please add a test for upserting a changed base ref name." }],
   },
   {
     id: CONVERSATION_ID,

@@ -1,0 +1,7 @@
+diff --git a/migrations/0006_pr_title.sql b/migrations/0006_pr_title.sql
+new file mode 100644
+index 0000000..e17d140
+--- /dev/null
++++ b/migrations/0006_pr_title.sql
+@@ -0,0 +1 @@
++ALTER TABLE active_pr ADD COLUMN title TEXT NOT NULL DEFAULT '';

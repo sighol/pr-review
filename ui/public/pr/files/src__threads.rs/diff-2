@@ -1,0 +1,97 @@
+diff --git a/src/threads.rs b/src/threads.rs
+index 69f1d48..303a5c5 100644
+--- a/src/threads.rs
++++ b/src/threads.rs
+@@ -28,6 +28,9 @@ struct Discussion {
+     diff_hunk: Option<String>,
+     /// The commit the discussion's diff hunk is anchored to.
+     commit_oid: Option<String>,
++    /// GitHub's own resolved flag; `None` for the top-level conversation,
++    /// which has no such concept.
++    github_resolved: Option<bool>,
+     comments: Vec<ReviewComment>,
+ }
+ 
+@@ -68,8 +71,9 @@ pub async fn run(
+ 
+     eprintln!("Fetching origin (for commit numbers)...");
+     git::fetch_origin(repo_path).await?;
+-    git::ensure_commits_available(repo_path, &pr_refs.base_oid, &pr_refs.head_oid).await?;
+-    let commits = git::commits_in_range(repo_path, &pr_refs.base_oid, &pr_refs.head_oid).await?;
++    git::ensure_commits_available(repo_path, &[&pr_refs.base_ref_name, &pr_refs.head_oid]).await?;
++    let commits =
++        git::commits_in_range(repo_path, &pr_refs.base_ref_name, &pr_refs.head_oid).await?;
+     // 1-based, matching the numbering `sync`/`status` already show elsewhere.
+     let commit_numbers: HashMap<&str, usize> = commits
+         .iter()
+@@ -88,6 +92,7 @@ pub async fn run(
+                 .comments
+                 .first()
+                 .and_then(|c| c.original_commit_oid.clone()),
++            github_resolved: Some(t.is_resolved),
+             comments: t.comments,
+         })
+         .collect();
+@@ -98,6 +103,7 @@ pub async fn run(
+             line: None,
+             diff_hunk: None,
+             commit_oid: None,
++            github_resolved: None,
+             comments: conversation_comments,
+         });
+     }
+@@ -115,8 +121,10 @@ pub async fn run(
+     }
+ 
+     let skin = MadSkin::default();
++    let mut discussion_index = 0;
+     let mut all_resolved = true;
+     for discussion in &unresolved {
++        discussion_index += 1;
+         let mut rendered = String::new();
+         if let (Some(path), Some(diff_hunk)) = (&discussion.path, &discussion.diff_hunk) {
+             let hunk = diff::render_hunk(repo_path, path, diff_hunk, side_by_side).await?;
+@@ -145,19 +153,40 @@ pub async fn run(
+             None => rendered.push_str(&skin.term_text("## Conversation\n").to_string()),
+         }
+ 
++        let resolved_commit = resolutions.get(&discussion.id);
++
+         let mut markdown = String::new();
+         for comment in &discussion.comments {
+             markdown.push_str(&format!(
+-                "**{}** *{}*\n\n{}\n\n---\n\n",
+-                comment.author, comment.created_at, comment.body
++                "**{}** *{}* {}\n\n{}\n\n---\n\n",
++                comment.author,
++                comment.created_at,
++                hyperlink(&comment.url, "\u{1F517}"),
++                comment.body
+             ));
++            if let Some(resolved) = resolved_commit
++                && resolved == &comment.id
++            {
++                markdown.push_str("\n**\x1b[34m--- NEW COMMENTS ---\x1b[0m **\n\n")
++            }
+         }
+         rendered.push_str(&skin.term_text(&markdown).to_string());
+ 
+         let _ = execute!(io::stdout(), Clear(ClearType::All), MoveTo(0, 0));
+         page(&rendered).await?;
+         println!();
+-        print!("Resolve this discussion? (y/n): ");
++        if let Some(github_resolved) = discussion.github_resolved {
++            let status = if github_resolved {
++                "\x1b[32mresolved\x1b[0m"
++            } else {
++                "\x1b[33munresolved\x1b[0m"
++            };
++            println!("GitHub status: {status}");
++        }
++        print!(
++            "Resolve discussion {discussion_index}/{}? (y/n): ",
++            unresolved.len()
++        );
+         io::stdout().flush()?;
+ 
+         match read_key().unwrap_or(KeyCode::Enter) {

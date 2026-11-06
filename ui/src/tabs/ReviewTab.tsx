@@ -10,7 +10,10 @@ const MAX_SNIPPET = 10;
 type Event = "APPROVE" | "COMMENT" | "REQUEST_CHANGES";
 
 function Snippet({ file, draft }: { file: FileData; draft: Draft }) {
-  const lines = useMemo(() => snippetFor(file, draft.range), [file, draft.range]);
+  const lines = useMemo(() => {
+    const full = file.versions.get(0)!;
+    return snippetFor({ oldText: full.oldText, newText: file.newText, diffText: full.diffText }, draft.range);
+  }, [file, draft.range]);
   const shown = lines.slice(0, MAX_SNIPPET);
   return (
     <div className="snippet">

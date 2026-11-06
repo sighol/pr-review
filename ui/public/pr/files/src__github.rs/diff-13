@@ -1,0 +1,95 @@
+diff --git a/src/github.rs b/src/github.rs
+index 24e9df8..257563d 100644
+--- a/src/github.rs
++++ b/src/github.rs
+@@ -64,6 +64,8 @@ pub struct ReviewComment {
+     pub author: String,
+     pub created_at: DateTime<Utc>,
+     pub body: String,
++    /// The comment's permalink on github.com.
++    pub url: String,
+     /// The diff hunk this comment was made against, exactly as GitHub
+     /// recorded it at the time — unset for top-level conversation comments.
+     pub diff_hunk: String,
+@@ -72,13 +74,14 @@ pub struct ReviewComment {
+     pub original_commit_oid: Option<String>,
+ }
+ 
+-/// An inline code-review comment thread, with GitHub's own resolved flag
+-/// intentionally omitted: this tool tracks its own, separate resolution
+-/// state locally (see `db::thread_resolutions`).
++/// An inline code-review comment thread. `is_resolved` is GitHub's own
++/// resolved flag, separate from this tool's local resolution state (see
++/// `db::thread_resolutions`).
+ pub struct ReviewThread {
+     pub id: String,
+     pub path: String,
+     pub line: Option<i64>,
++    pub is_resolved: bool,
+     /// Chronological order, oldest first. Always non-empty.
+     pub comments: Vec<ReviewComment>,
+ }
+@@ -125,6 +128,8 @@ struct ReviewThreadNode {
+     id: String,
+     path: String,
+     line: Option<i64>,
++    #[serde(rename = "isResolved")]
++    is_resolved: bool,
+     comments: CommentsConnection,
+ }
+ 
+@@ -140,6 +145,7 @@ struct CommentNode {
+     #[serde(rename = "createdAt")]
+     created_at: DateTime<Utc>,
+     body: String,
++    url: String,
+     #[serde(rename = "diffHunk", default)]
+     diff_hunk: String,
+     #[serde(rename = "originalCommit")]
+@@ -166,12 +172,14 @@ query($owner: String!, $repo: String!, $number: Int!, $after: String) {
+           id
+           path
+           line
++          isResolved
+           comments(first: 100) {
+             nodes {
+               id
+               author { login }
+               createdAt
+               body
++              url
+               diffHunk
+               originalCommit { oid }
+             }
+@@ -242,6 +250,7 @@ pub async fn fetch_review_threads(
+                         .unwrap_or_else(|| "ghost".to_string()),
+                     created_at: c.created_at,
+                     body: c.body,
++                    url: c.url,
+                     diff_hunk: c.diff_hunk,
+                     original_commit_oid: c.original_commit.map(|oc| oc.oid),
+                 })
+@@ -251,6 +260,7 @@ pub async fn fetch_review_threads(
+                 id: node.id,
+                 path: node.path,
+                 line: node.line,
++                is_resolved: node.is_resolved,
+                 comments,
+             });
+         }
+@@ -277,6 +287,7 @@ struct ConversationCommentJson {
+     #[serde(rename = "createdAt")]
+     created_at: DateTime<Utc>,
+     body: String,
++    url: String,
+ }
+ 
+ /// Fetches the PR's top-level conversation comments (the ones with no
+@@ -321,6 +332,7 @@ pub async fn fetch_pr_conversation_comments(
+                 .unwrap_or_else(|| "ghost".to_string()),
+             created_at: c.created_at,
+             body: c.body,
++            url: c.url,
+             diff_hunk: String::new(),
+             original_commit_oid: None,
+         })

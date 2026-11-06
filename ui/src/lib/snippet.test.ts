@@ -2,8 +2,9 @@ import { expect, test } from "vitest";
 import { readFileSync } from "node:fs";
 import { snippetFor } from "./snippet";
 
-const read = (f: string) => readFileSync(`public/fixtures/small-main/${f}`, "utf8");
-const file = { oldText: read("old"), newText: read("new"), diffText: read("diff") };
+// src/main.rs diffed from commit 17 to its latest commit (18).
+const read = (f: string) => readFileSync(`public/pr/files/src__main.rs/${f}`, "utf8");
+const file = { oldText: read("old-17"), newText: read("new"), diffText: read("diff-17") };
 
 test("new-side snippet returns the covered lines with their kind", () => {
   const s = snippetFor(file, { side: "new", start: 41, end: 43 });
