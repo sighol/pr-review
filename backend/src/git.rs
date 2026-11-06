@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use tokio::process::Command;
@@ -113,6 +113,68 @@ pub async fn file_diff(repo: &Path, from: &str, to: &str, path: &str) -> Result<
     .await
 }
 
+/// Root of the git work tree containing `dir`.
+pub async fn toplevel(dir: &Path) -> Result<PathBuf> {
+    let out = run(dir, &["rev-parse", "--show-toplevel"]).await?;
+    if !out.status.success() {
+        bail!("{} is not inside a git repository", dir.display());
+    }
+    Ok(PathBuf::from(String::from_utf8_lossy(&out.stdout).trim()))
+}
+
+/// GitHub `(owner, repo)` of the `origin` remote.
+pub async fn origin_owner_repo(repo: &Path) -> Result<(String, String)> {
+    let out = run(repo, &["remote", "get-url", "origin"]).await?;
+    if !out.status.success() {
+        bail!("this repo has no 'origin' remote");
+    }
+    let url = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    parse_github_owner_repo(&url)
+        .with_context(|| format!("could not find a GitHub owner/repo in the origin URL '{url}'"))
+}
+
+fn parse_github_owner_repo(url: &str) -> Option<(String, String)> {
+    let trimmed = url.strip_suffix(".git").unwrap_or(url);
+    let idx = trimmed.find("github.com")?;
+    let rest = trimmed[idx + "github.com".len()..]
+        .trim_start_matches(':')
+        .trim_start_matches('/');
+    let (owner, repo) = rest.split_once('/')?;
+    if owner.is_empty() || repo.is_empty() {
+        return None;
+    }
+    Some((owner.to_string(), repo.to_string()))
+}
+
+/// The commits a PR spans: `base` is the merge-base of the base branch and the PR head.
+#[derive(Debug, PartialEq, Eq)]
+pub struct PrRange {
+    pub base: String,
+    pub head: String,
+}
+
+/// Fetches the PR head (`refs/pull/N/head`, which also exists for fork PRs) and its base
+/// branch from `origin`, then resolves the range. The head is stored under
+/// `refs/pr-review/N/head` so it never touches the user's branches.
+pub async fn fetch_pr(repo: &Path, number: u64, base_ref_name: &str) -> Result<PrRange> {
+    let head_ref = format!("refs/pr-review/{number}/head");
+    let base_ref = format!("refs/remotes/origin/{base_ref_name}");
+    git(
+        repo,
+        &[
+            "fetch",
+            "--no-tags",
+            "origin",
+            &format!("+refs/pull/{number}/head:{head_ref}"),
+            &format!("+refs/heads/{base_ref_name}:{base_ref}"),
+        ],
+    )
+    .await?;
+    let head = resolve_commit(repo, &head_ref).await?;
+    let base = merge_base(repo, &base_ref, &head).await?;
+    Ok(PrRange { base, head })
+}
+
 #[cfg(test)]
 pub(crate) mod testutil {
     use std::path::{Path, PathBuf};
@@ -139,6 +201,22 @@ pub(crate) mod testutil {
 
         pub fn path(&self) -> &Path {
             &self.dir
+        }
+
+        /// A clone of `other`, with `other` as its `origin`.
+        pub fn clone_of(other: &TestRepo) -> Self {
+            let n = COUNTER.fetch_add(1, Ordering::SeqCst);
+            let dir = std::env::temp_dir().join(format!("pr-review-core-{}-{n}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            let out = std::process::Command::new("git")
+                .arg("clone")
+                .arg("-q")
+                .arg(&other.dir)
+                .arg(&dir)
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+            Self { dir }
         }
 
         pub fn git(&self, args: &[&str]) -> String {
@@ -230,5 +308,54 @@ mod tests {
         assert_eq!(resolve_commit(repo.path(), &tip[..8]).await.unwrap(), tip);
         assert!(resolve_commit(repo.path(), "not-a-commit").await.is_err());
         assert_eq!(merge_base(repo.path(), &base, &tip).await.unwrap(), base);
+    }
+
+    #[test]
+    fn parses_origin_urls() {
+        let ok = |url| parse_github_owner_repo(url);
+        let expected = Some(("cognitedata".to_string(), "pr-review".to_string()));
+        assert_eq!(ok("git@github.com:cognitedata/pr-review.git"), expected);
+        assert_eq!(ok("https://github.com/cognitedata/pr-review.git"), expected);
+        assert_eq!(ok("https://github.com/cognitedata/pr-review"), expected);
+        assert_eq!(ok("git@gitlab.com:cognitedata/pr-review.git"), None);
+    }
+
+    #[tokio::test]
+    async fn toplevel_from_a_subdirectory_and_outside_a_repo() {
+        let repo = TestRepo::new();
+        repo.commit("x", &[("sub/a.txt", Some("1\n"))]);
+        let top = toplevel(&repo.path().join("sub")).await.unwrap();
+        assert_eq!(top.canonicalize().unwrap(), repo.path().canonicalize().unwrap());
+
+        let outside = std::env::temp_dir().join(format!("pr-review-core-nogit-{}", std::process::id()));
+        std::fs::create_dir_all(&outside).unwrap();
+        assert!(toplevel(&outside).await.is_err());
+        let _ = std::fs::remove_dir_all(&outside);
+    }
+
+    #[tokio::test]
+    async fn fetch_pr_gets_head_and_merge_base() {
+        let remote = TestRepo::new();
+        remote.git(&["symbolic-ref", "HEAD", "refs/heads/main"]);
+        let base = remote.commit("base", &[("a.txt", Some("1\n"))]);
+        remote.git(&["checkout", "-q", "-b", "feature"]);
+        let first = remote.commit("pr work", &[("a.txt", Some("2\n"))]);
+        remote.git(&["update-ref", "refs/pull/7/head", &first]);
+        remote.git(&["checkout", "-q", "main"]);
+        remote.commit("main moves on", &[("b.txt", Some("b\n"))]);
+
+        let local = TestRepo::clone_of(&remote);
+        let range = fetch_pr(local.path(), 7, "main").await.unwrap();
+        assert_eq!(range, PrRange { base: base.clone(), head: first });
+        assert_eq!(commits_in_range(local.path(), &range.base, &range.head).await.unwrap().len(), 1);
+
+        // A later push to the PR is picked up by the next fetch.
+        remote.git(&["checkout", "-q", "feature"]);
+        let second = remote.commit("more pr work", &[("a.txt", Some("3\n"))]);
+        remote.git(&["update-ref", "refs/pull/7/head", &second]);
+        let range = fetch_pr(local.path(), 7, "main").await.unwrap();
+        assert_eq!(range, PrRange { base, head: second });
+
+        assert!(fetch_pr(local.path(), 8, "main").await.is_err());
     }
 }

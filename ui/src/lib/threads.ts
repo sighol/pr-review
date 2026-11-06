@@ -65,7 +65,15 @@ export function sortThreads(threads: FakeThread[], resolutions: ReadonlyMap<stri
   return [...threads].sort((a, b) => rank(a) - rank(b));
 }
 
-export const PR = {
+export interface PrInfo {
+  number: number;
+  title: string;
+  author: string;
+  body: string;
+}
+
+/** The fake PR shown when running in a browser against fixtures. */
+export const PR: PrInfo = {
   number: 128,
   title: "Thread review improvements, PR title in the grid, and repo discovery",
   author: "sigurd",

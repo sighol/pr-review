@@ -1,6 +1,9 @@
 import type { Commit } from "../store";
+import type { PrInfo } from "./threads";
 
 export interface Manifest {
+  /** Present when the backend opened a real PR; absent for the fake fixtures. */
+  pr?: PrInfo;
   base: string;
   commits: Commit[];
   files: { path: string; dir: string; added: number; removed: number; changedBy: number[] }[];

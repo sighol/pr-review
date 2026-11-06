@@ -1,25 +1,39 @@
 # pr-review
 
-A desktop app for reviewing GitHub PRs: side-by-side diffs, per-file/per-commit approval tracking, local draft comments, and a final review submit. Planned stack is Tauri + Rust backend with a React frontend.
+A desktop app for reviewing GitHub PRs: side-by-side diffs, per-file/per-commit approval tracking, local draft comments, and a final review submit. Stack: Tauri v2 + Rust backend with a React frontend.
 
 ## State of the repo
 
-- **`src/`, `Cargo.toml`, `migrations/` — the old TUI/CLI. It is going to be deleted.** Do not extend it, refactor it, or keep it compiling for its own sake. It is only useful as a reference for behaviour and for logic worth porting (see "Porting from the TUI"). When the Tauri app exists, this code and the root crate go away, and the project may move to a new repo.
-- **`ui/` — the new frontend, currently a browser-only prototype.** No Tauri, no Rust, no backend, no sqlite yet. All PR data is fake, derived from this repo's own git history. This is where all current work happens.
+- **`ui/` — the React frontend.** Runs in a plain browser against fake fixtures derived from this repo's own git history, or inside Tauri against the real backend (`lib/backend.ts` picks by `__TAURI_INTERNALS__`). Threads, drafts, resolutions and approvals are still fake / in memory.
+- **`backend/` (`pr-review-core`) — pure-Rust library crate**: the git layer (`git.rs`) and the manifest builder (`manifest.rs`). No Tauri dependency, so `cargo test -p pr-review-core` works without webkit.
+- **`src-tauri/` (`pr-review-app`) — thin Tauri shell** exposing `open_pr`, `file_text`, `file_diff` commands over `pr-review-core`. Building it needs the Tauri v2 Linux system libraries, which the flake dev shell provides.
+- Root `Cargo.toml` is just the workspace.
+- The old TUI/CLI was deleted. It is still in git history at commit `cdfab13` (see "Porting from the old TUI").
 - `UI_SPEC.md` — the original (rough) product brief. The decisions below supersede it where they differ.
 
-## Running the prototype
+## Running
 
-Use **bun** (there is no node/npm on this machine; it's NixOS).
+This is NixOS: `flake.nix` provides the dev shell (rust, cargo-tauri, bun, webkit2gtk-4.1 and the other Tauri system libraries). Enter it with `nix develop` before running anything below. Flakes only see git-tracked files, so `git add flake.nix` (and `flake.lock`) after changing them. Use **bun** for the frontend.
 
 ```
 cd ui
 bun install
-bun run dev        # http://localhost:5173
+bun run dev        # http://localhost:5173 (browser, fixtures)
 bun test           # unit tests + a render-time smoke test
 bun run typecheck  # tsc --noEmit
 bun run fixtures   # regenerate public/pr from git history
+
+cargo test -p pr-review-core    # backend tests, no webkit needed
+
+# The real app: pr-review <PR number>, run from inside a clone of the GitHub repo.
+# Needs `git` and an authenticated `gh`. Under `cargo tauri dev` the app's working
+# directory is src-tauri/ (still inside this repo), and app args go after two `--`:
+cargo tauri dev -- -- 13486
 ```
+
+## How a PR is opened
+
+`pr-review <N>` (src-tauri/src/lib.rs) does all the work *before* the window opens, printing progress and errors on stderr and exiting non-zero on failure. `pr-review-core::pr::open_pr` runs: `git rev-parse --show-toplevel` -> owner/repo from `origin` -> `gh pr view` (title, body, author, base branch) -> `git fetch origin +refs/pull/N/head:refs/pr-review/N/head +refs/heads/<base>:refs/remotes/origin/<base>` (works for fork PRs; never touches your branches) -> base = merge-base(origin/<base>, head) -> manifest. It always fetches; there is no cache. GitHub is reached only through the `gh` CLI (auth comes from `gh auth login`); everything git can do goes through `git`. The window then gets the stored manifest via the `open_pr` command. Real PRs show no threads yet (empty list); the fake threads only appear in browser/fixture mode.
 
 Routes: `/` summary (default), `/diff?file=<path>[&thread=<id> | &line=<side>:<n>]`, `/review`. Browser back/forward work (History API, no router library). The selected commit range is **not** in the URL yet.
 
@@ -68,11 +82,11 @@ The frontend deliberately consumes only "text + `git diff`", which is the contra
 
 ## Not built yet
 
-Tauri shell and Rust backend; sqlite storage for drafts, resolutions and approvals; fetching a real PR (git fetch + GitHub GraphQL) and submitting a real review; the selected commit range in the URL; keyboard shortcuts; large-file performance work beyond `content-visibility`.
+sqlite storage for drafts, resolutions and approvals; GitHub review threads and PR conversation comments (GraphQL, via `gh api graphql`); submitting a real review; the selected commit range in the URL; keyboard shortcuts; large-file performance work beyond `content-visibility`.
 
-## Porting from the TUI (before it is deleted)
+## Porting from the old TUI
 
-Worth reading when building the backend: `src/git.rs` (fetch, merge-base, commits in range, `git diff` helpers, owner/repo from the remote), `src/github.rs` (GraphQL for review threads, `isResolved`, `originalCommit`, conversation comments, PR title/refs), `src/db.rs` plus `migrations/` (approvals and `thread_resolutions` schema), `src/types.rs` (approval model). GitHub's API provides `originalCommit { oid }` per comment; the TUI only fetches `line`, but the GUI also needs `originalLine`, `originalStartLine`, `diffSide` and `isOutdated`.
+Read with `git show cdfab13:<path>`. Worth reading when building the rest of the backend: `src/github.rs` (GraphQL for review threads, `isResolved`, `originalCommit`, conversation comments; PR title/refs are already ported to `backend/src/github.rs`), `src/db.rs` plus `migrations/` (approvals and `thread_resolutions` schema), `src/types.rs` (approval model). GitHub's API provides `originalCommit { oid }` per comment; the TUI only fetches `line`, but the GUI also needs `originalLine`, `originalStartLine`, `diffSide` and `isOutdated`.
 
 ## Working with this user
 

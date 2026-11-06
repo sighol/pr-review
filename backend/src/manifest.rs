@@ -5,17 +5,21 @@ use anyhow::Result;
 use serde::Serialize;
 
 use crate::git;
+use crate::github::PrMeta;
 
-/// Same JSON shape as `ui/scripts/make-fixtures.py` writes to `public/pr/manifest.json`.
-#[derive(Debug, Serialize)]
+/// Same JSON shape as `ui/scripts/make-fixtures.py` writes to `public/pr/manifest.json`,
+/// plus `pr` when a real PR was opened.
+#[derive(Debug, Clone, Serialize)]
 pub struct Manifest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pr: Option<PrMeta>,
     pub base: String,
     pub head: String,
     pub commits: Vec<ManifestCommit>,
     pub files: Vec<ManifestFile>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ManifestCommit {
     /// 1-based position in the PR; state 0 of a file is the PR base.
     pub n: usize,
@@ -24,7 +28,7 @@ pub struct ManifestCommit {
     pub subject: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ManifestFile {
     pub path: String,
@@ -70,7 +74,7 @@ pub async fn build_manifest(repo: &Path, base_rev: &str, head_rev: &str) -> Resu
         })
         .collect();
 
-    Ok(Manifest { base, head, commits, files })
+    Ok(Manifest { pr: None, base, head, commits, files })
 }
 
 #[cfg(test)]

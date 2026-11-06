@@ -1,7 +1,7 @@
 import { FileMatrix } from "../components/FileMatrix";
 import { Markdown } from "../components/Markdown";
 import { ThreadBox } from "../components/ThreadBox";
-import { CONVERSATION_ID, PR, isResolved, newCount, sortThreads } from "../lib/threads";
+import { CONVERSATION_ID, isResolved, newCount, sortThreads } from "../lib/threads";
 import { threadLine, useStore } from "../store";
 
 const excerpt = (s: string) => {
@@ -10,7 +10,7 @@ const excerpt = (s: string) => {
 };
 
 export function SummaryTab() {
-  const { threads, resolutions, fileByName, jumpTo } = useStore();
+  const { threads, resolutions, fileByName, jumpTo, pr } = useStore();
   const lineThreads = sortThreads(
     threads.filter((t) => t.file !== null),
     resolutions,
@@ -22,13 +22,13 @@ export function SummaryTab() {
   return (
     <div className="page">
       <h1>
-        {PR.title} <span className="pr-number">#{PR.number}</span>
+        {pr.title} <span className="pr-number">#{pr.number}</span>
       </h1>
       <p className="muted">
-        opened by <strong>{PR.author}</strong>
+        opened by <strong>{pr.author}</strong>
       </p>
       <section className="card">
-        <Markdown text={PR.body} />
+        <Markdown text={pr.body} />
       </section>
 
       <h2>Files</h2>
