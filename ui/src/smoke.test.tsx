@@ -27,7 +27,7 @@ describe("renders without throwing", () => {
     const { DiffTab } = await import("./tabs/DiffTab");
     const { ReviewTab } = await import("./tabs/ReviewTab");
     const html = renderToString(
-      <StoreProvider files={loaded.files} commits={loaded.commits} threads={loaded.threads} pr={loaded.pr}>
+      <StoreProvider files={loaded.files} commits={loaded.commits} threads={loaded.threads} pr={loaded.pr} saved={loaded.saved}>
         <SummaryTab />
         <DiffTab />
         <ReviewTab />
@@ -50,7 +50,7 @@ describe("renders without throwing", () => {
       ]) {
         const data = await loadRangeData(file, range);
         const html = renderToString(
-          <StoreProvider files={loaded.files} commits={loaded.commits} threads={loaded.threads} pr={loaded.pr}>
+          <StoreProvider files={loaded.files} commits={loaded.commits} threads={loaded.threads} pr={loaded.pr} saved={loaded.saved}>
             <DiffView file={file} data={data} range={range} wholeFile={false} />
           </StoreProvider>,
         );
