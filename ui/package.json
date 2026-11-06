@@ -10,6 +10,7 @@
     "fixtures": "python3 scripts/make-fixtures.py"
   },
   "dependencies": {
+    "@tauri-apps/api": "^2.12.4",
     "diff": "^9.0.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
