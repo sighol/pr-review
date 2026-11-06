@@ -467,7 +467,10 @@ mod tests {
         assert_eq!(t.comments.len(), 2);
         assert_eq!(t.comments[0].original_commit_oid.as_deref(), Some("abc"));
         assert_eq!(t.comments[1].author, "ghost");
-        assert_eq!(t.comments[0].url, "https://github.com/o/r/pull/1#discussion_r1");
+        assert_eq!(
+            t.comments[0].url,
+            "https://github.com/o/r/pull/1#discussion_r1"
+        );
     }
 
     #[test]

@@ -205,6 +205,9 @@ mod tests {
         assert_eq!(v["originalLine"], 7);
         assert_eq!(v["githubResolved"], false);
         assert_eq!(v["comments"][0]["createdAt"], "2026-01-02T03:04:05Z");
-        assert_eq!(v["comments"][0]["url"], "https://github.com/o/r/pull/1#discussion_c1");
+        assert_eq!(
+            v["comments"][0]["url"],
+            "https://github.com/o/r/pull/1#discussion_c1"
+        );
     }
 }

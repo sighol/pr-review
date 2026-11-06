@@ -83,7 +83,7 @@ export function ThreadBox({ thread, expanded = false, preview = false }: Props) 
       {thread.comments.map((c, i) => {
         const isNew = newFrom !== null && i >= newFrom;
         return (
-          <div key={c.id}>
+          <div key={c.id} className="thread-item">
             {i === newFrom && <div className="new-divider">New since you resolved</div>}
             <div className={`thread-comment${isNew ? " new" : ""}`}>
               <div className="comment-head">
