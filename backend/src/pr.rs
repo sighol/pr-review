@@ -2,11 +2,13 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 
+use crate::db::PrKey;
 use crate::manifest::{Manifest, build_manifest};
 use crate::{git, github};
 
 pub struct OpenedPr {
     pub repo: PathBuf,
+    pub key: PrKey,
     pub manifest: Manifest,
 }
 
@@ -25,5 +27,6 @@ pub async fn open_pr(cwd: &Path, number: u64, progress: impl Fn(&str)) -> Result
     progress("Reading commits and diffs");
     let mut manifest = build_manifest(&repo, &range.base, &range.head).await?;
     manifest.pr = Some(info.meta);
-    Ok(OpenedPr { repo, manifest })
+    let key = PrKey { owner, repo: name, number };
+    Ok(OpenedPr { repo, key, manifest })
 }

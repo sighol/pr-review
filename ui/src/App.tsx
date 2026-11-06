@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { fileText, loadManifest } from "./lib/backend";
+import { fileText, loadManifest, loadSaved, type SavedState } from "./lib/backend";
 import { routeUrl } from "./lib/route";
 import { ALL_THREADS, PR, isResolved, newCount, type FakeThread, type PrInfo } from "./lib/threads";
 import { StoreProvider, useStore, type Commit, type FileData, type Tab } from "./store";
@@ -12,6 +12,7 @@ interface Loaded {
   commits: Commit[];
   pr: PrInfo;
   threads: FakeThread[];
+  saved: SavedState | null;
 }
 
 export async function loadAll(): Promise<Loaded> {
@@ -30,7 +31,13 @@ export async function loadAll(): Promise<Loaded> {
     ),
   );
   // Real PRs have no threads until they are fetched from GitHub; the fake ones only fit the fixtures.
-  return { files, commits: manifest.commits, pr: manifest.pr ?? PR, threads: manifest.pr ? [] : ALL_THREADS };
+  return {
+    files,
+    commits: manifest.commits,
+    pr: manifest.pr ?? PR,
+    threads: manifest.pr ? [] : ALL_THREADS,
+    saved: await loadSaved(),
+  };
 }
 
 function Panel({ id, children }: { id: Tab; children: ReactNode }) {
@@ -95,7 +102,13 @@ export function App() {
   if (!loaded) return <div className="loading">Loading…</div>;
 
   return (
-    <StoreProvider files={loaded.files} commits={loaded.commits} threads={loaded.threads} pr={loaded.pr}>
+    <StoreProvider
+      files={loaded.files}
+      commits={loaded.commits}
+      threads={loaded.threads}
+      pr={loaded.pr}
+      saved={loaded.saved}
+    >
       <div className="app">
         <Header />
         <div className="panels">

@@ -54,3 +54,76 @@ export function fileDiff(file: FileKey, from: number, to: number): Promise<strin
     return invoke<string>("file_diff", { fromOid: stateOids[from], toOid: stateOids[to], path: file.path });
   });
 }
+
+/** Review state saved in the database for this PR (Tauri only). */
+export interface SavedState {
+  approvals: { filePath: string; commitOid: string }[];
+  drafts: { draftKey: string; filePath: string; side: "old" | "new"; startLine: number; endLine: number; body: string; headOid: string }[];
+  replies: { threadId: string; body: string }[];
+  resolutions: { threadId: string; resolvedThrough: string | null; reopened: boolean }[];
+  reviewBody: string;
+}
+
+/** The saved review state, or null in a browser, where nothing is persisted. */
+export async function loadSaved(): Promise<SavedState | null> {
+  if (!inTauri()) return null;
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<SavedState>("saved_state");
+}
+
+// Saves run one at a time, in order, so a delete can never overtake the save before it.
+let queue: Promise<unknown> = Promise.resolve();
+function save(command: string, args: Record<string, unknown>) {
+  if (!inTauri()) return;
+  queue = queue
+    .then(async () => {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke(command, args);
+    })
+    .catch((e) => console.error(`saving (${command}) failed:`, e));
+}
+
+const pending = new Map<string, { timer: ReturnType<typeof setTimeout>; run: () => void }>();
+const cancelSave = (id: string) => {
+  clearTimeout(pending.get(id)?.timer);
+  pending.delete(id);
+};
+function saveSoon(id: string, run: () => void) {
+  cancelSave(id);
+  pending.set(id, {
+    timer: setTimeout(() => {
+      pending.delete(id);
+      run();
+    }, 400),
+    run,
+  });
+}
+
+/** Runs every delayed save now. */
+export function flushSaves() {
+  for (const [id, { timer, run }] of [...pending]) {
+    clearTimeout(timer);
+    pending.delete(id);
+    run();
+  }
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener("focusout", flushSaves);
+  window.addEventListener("pagehide", flushSaves);
+}
+
+export const persist = {
+  fileApprovals: (filePath: string, commitOids: string[]) => save("set_file_approvals", { filePath, commitOids }),
+  /** Typing is saved after a short pause. */
+  draft: (d: { draftKey: string; filePath: string; side: "old" | "new"; startLine: number; endLine: number; body: string }) =>
+    saveSoon(`draft:${d.draftKey}`, () => save("save_draft", { draft: d })),
+  deleteDraft: (draftKey: string) => {
+    cancelSave(`draft:${draftKey}`);
+    save("delete_draft", { draftKey });
+  },
+  reply: (threadId: string, body: string) => saveSoon(`reply:${threadId}`, () => save("save_reply", { threadId, body })),
+  resolution: (threadId: string, resolvedThrough: string | null, reopened: boolean) =>
+    save("set_resolution", { threadId, resolvedThrough, reopened }),
+  reviewBody: (body: string) => saveSoon("review-body", () => save("set_review_body", { body })),
+};

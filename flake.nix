@@ -36,6 +36,7 @@
               rustfmt
               cargo-tauri
               bun
+              just
               git
             ];
             buildInputs = libs;

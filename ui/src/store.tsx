@@ -11,6 +11,7 @@ import {
   type CommitRange,
 } from "./lib/range";
 import { parseLine, parseRoute, routeUrl, type Route, type Tab } from "./lib/route";
+import { persist, type SavedState } from "./lib/backend";
 import { lastCommentId, type FakeThread, type PrInfo, type Resolution } from "./lib/threads";
 
 export type { Tab } from "./lib/route";
@@ -151,12 +152,15 @@ export function StoreProvider({
   commits,
   threads,
   pr,
+  saved,
   children,
 }: {
   files: FileData[];
   commits: Commit[];
   threads: FakeThread[];
   pr: PrInfo;
+  /** Review state from the database, or null (browser fixtures) to start from the seeded prototype state. */
+  saved: SavedState | null;
   children: ReactNode;
 }) {
   const headN = commits.length;
@@ -170,15 +174,25 @@ export function StoreProvider({
   // Ranges and approvals are mirrored in refs so navigation can read the latest values synchronously.
   const [rangeOverrides, setRangeOverrides] = useState<ReadonlyMap<string, CommitRange>>(new Map());
   const [globalRange, setGlobalRange] = useState<CommitRange | null>(null);
-  const [approvals, setApprovals] = useState<ReadonlyMap<string, ReadonlySet<number>>>(
-    () =>
-      new Map(
-        files.flatMap((f) => {
-          const through = SEED_APPROVED_THROUGH[f.path];
-          return through ? [[f.path, approveThrough(f.changedBy, through)] as const] : [];
-        }),
-      ),
-  );
+  const [approvals, setApprovals] = useState<ReadonlyMap<string, ReadonlySet<number>>>(() => {
+    if (saved) {
+      const numberOf = new Map(commits.map((c) => [c.oid, c.n]));
+      const byFile = new Map<string, Set<number>>();
+      for (const a of saved.approvals) {
+        const n = numberOf.get(a.commitOid);
+        if (n === undefined || !fileNames.has(a.filePath)) continue;
+        const set = byFile.get(a.filePath) ?? new Set<number>();
+        byFile.set(a.filePath, set.add(n));
+      }
+      return byFile;
+    }
+    return new Map(
+      files.flatMap((f) => {
+        const through = SEED_APPROVED_THROUGH[f.path];
+        return through ? [[f.path, approveThrough(f.changedBy, through)] as const] : [];
+      }),
+    );
+  });
   const overridesRef = useRef(rangeOverrides);
   const globalRef = useRef(globalRange);
   const approvalsRef = useRef(approvals);
@@ -306,22 +320,56 @@ export function StoreProvider({
   );
   const clearJump = useCallback(() => setJump(null), []);
 
-  const [drafts, setDrafts] = useState<ReadonlyMap<string, Draft>>(new Map());
-  const [focus, setFocus] = useState<{ key: string; tick: number } | null>(null);
-  const [replies, setReplies] = useState<ReadonlyMap<string, string>>(new Map());
-  const [resolutions, setResolutions] = useState<ReadonlyMap<string, Resolution>>(
+  const [drafts, setDrafts] = useState<ReadonlyMap<string, Draft>>(
     () =>
       new Map(
-        threads.flatMap((t) =>
-          t.resolvedThrough ? [[t.id, { through: t.resolvedThrough, reopened: false }] as const] : [],
-        ),
+        (saved?.drafts ?? [])
+          .filter((d) => fileNames.has(d.filePath))
+          .map((d): [string, Draft] => [
+            d.draftKey,
+            { key: d.draftKey, file: d.filePath, range: { side: d.side, start: d.startLine, end: d.endLine }, text: d.body },
+          ]),
       ),
   );
-  const [reviewBody, setReviewBody] = useState("");
-
-  const approveFile = useCallback((file: FileData) => {
-    setApprovals((prev) => new Map(prev).set(file.path, approveThrough(file.changedBy)));
+  const draftsRef = useRef(drafts);
+  draftsRef.current = drafts;
+  const [focus, setFocus] = useState<{ key: string; tick: number } | null>(null);
+  const [replies, setReplies] = useState<ReadonlyMap<string, string>>(() => {
+    const threadIds = new Set(threads.map((t) => t.id));
+    return new Map(
+      (saved?.replies ?? []).filter((r) => threadIds.has(r.threadId)).map((r): [string, string] => [r.threadId, r.body]),
+    );
+  });
+  const [resolutions, setResolutions] = useState<ReadonlyMap<string, Resolution>>(() =>
+    saved
+      ? new Map(
+          saved.resolutions.map((r): [string, Resolution] => [
+            r.threadId,
+            { through: r.resolvedThrough, reopened: r.reopened },
+          ]),
+        )
+      : new Map(
+          threads.flatMap((t) =>
+            t.resolvedThrough ? [[t.id, { through: t.resolvedThrough, reopened: false }] as const] : [],
+          ),
+        ),
+  );
+  const resolutionsRef = useRef(resolutions);
+  resolutionsRef.current = resolutions;
+  const [reviewBody, setReviewBodyState] = useState(saved?.reviewBody ?? "");
+  const setReviewBody = useCallback((s: string) => {
+    setReviewBodyState(s);
+    persist.reviewBody(s);
   }, []);
+
+  const approveFile = useCallback(
+    (file: FileData) => {
+      const through = approveThrough(file.changedBy);
+      setApprovals((prev) => new Map(prev).set(file.path, through));
+      persist.fileApprovals(file.path, [...through].map((n) => commits[n - 1].oid));
+    },
+    [commits],
+  );
 
   const unapproveFile = useCallback((file: FileData) => {
     setApprovals((prev) => {
@@ -329,6 +377,7 @@ export function StoreProvider({
       next.delete(file.path);
       return next;
     });
+    persist.fileApprovals(file.path, []);
   }, []);
 
   const createDraft = useCallback((file: string, range: LineRange) => {
@@ -342,6 +391,17 @@ export function StoreProvider({
       const d = prev.get(key);
       return d ? new Map(prev).set(key, { ...d, text }) : prev;
     });
+    const d = draftsRef.current.get(key);
+    if (d) {
+      persist.draft({
+        draftKey: key,
+        filePath: d.file,
+        side: d.range.side,
+        startLine: d.range.start,
+        endLine: d.range.end,
+        body: text,
+      });
+    }
   }, []);
 
   const removeDraft = useCallback((key: string) => {
@@ -351,6 +411,7 @@ export function StoreProvider({
       next.delete(key);
       return next;
     });
+    persist.deleteDraft(key);
   }, []);
 
   const setReply = useCallback((threadId: string, text: string | null) => {
@@ -360,14 +421,19 @@ export function StoreProvider({
       else next.set(threadId, text);
       return next;
     });
+    persist.reply(threadId, text ?? "");
   }, []);
 
   const resolveThread = useCallback((t: FakeThread) => {
-    setResolutions((prev) => new Map(prev).set(t.id, { through: lastCommentId(t), reopened: false }));
+    const through = lastCommentId(t);
+    setResolutions((prev) => new Map(prev).set(t.id, { through, reopened: false }));
+    persist.resolution(t.id, through, false);
   }, []);
 
   const reopenThread = useCallback((t: FakeThread) => {
+    const through = resolutionsRef.current.get(t.id)?.through ?? null;
     setResolutions((prev) => new Map(prev).set(t.id, { through: prev.get(t.id)?.through ?? null, reopened: true }));
+    persist.resolution(t.id, through, true);
   }, []);
 
   const value = useMemo<Store>(

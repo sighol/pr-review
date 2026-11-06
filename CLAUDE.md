@@ -24,6 +24,7 @@ bun run typecheck  # tsc --noEmit
 bun run fixtures   # regenerate public/pr from git history
 
 cargo test -p pr-review-core    # backend tests, no webkit needed
+just                            # cargo test, then typecheck, then bun test (run from the repo root)
 
 # The real app: pr-review <PR number>, run from inside a clone of the GitHub repo.
 # Needs `git` and an authenticated `gh`. Under `cargo tauri dev` the app's working
@@ -36,6 +37,15 @@ cargo tauri dev -- -- 13486
 `pr-review <N>` (src-tauri/src/lib.rs) does all the work *before* the window opens, printing progress and errors on stderr and exiting non-zero on failure. `pr-review-core::pr::open_pr` runs: `git rev-parse --show-toplevel` -> owner/repo from `origin` -> `gh pr view` (title, body, author, base branch) -> `git fetch origin +refs/pull/N/head:refs/pr-review/N/head +refs/heads/<base>:refs/remotes/origin/<base>` (works for fork PRs; never touches your branches) -> base = merge-base(origin/<base>, head) -> manifest. It always fetches; there is no cache. GitHub is reached only through the `gh` CLI (auth comes from `gh auth login`); everything git can do goes through `git`. The window then gets the stored manifest via the `open_pr` command. Real PRs show no threads yet (empty list); the fake threads only appear in browser/fixture mode.
 
 Routes: `/` summary (default), `/diff?file=<path>[&thread=<id> | &line=<side>:<n>]`, `/review`. Browser back/forward work (History API, no router library). The selected commit range is **not** in the URL yet.
+
+## Persistence
+
+Approvals, draft comments, draft replies, local thread resolutions and the review body are saved in sqlite (`backend/src/db.rs`, sqlx **without** the compile-time query macros; only `sqlx::migrate!`, which just embeds `backend/migrations/*.sql`). Change the schema by adding a new numbered migration, never by editing an applied one.
+
+- One global file, `$XDG_DATA_HOME/pr-review/pr-review.db` (`~/.local/share/...`), every row keyed by (owner, repo, pr_number). `Db` is scoped to the open PR.
+- Approvals are stored per (file, commit **oid**), so they survive new pushes. Drafts store the PR head oid they were written against; nothing uses it yet (no stale-draft UI).
+- Write-through: the store (`store.tsx`) keeps its in-memory Maps for rendering and calls `persist.*` from `lib/backend.ts` after each change. Saves run through one queue in order; typing is debounced 400ms and flushed on any `focusout`/`pagehide`. Blank drafts, replies and review bodies are deleted rather than stored. Everything saved arrives at startup via the `saved_state` command and seeds the store (`StoreProvider`'s `saved` prop).
+- Browser/fixture mode persists nothing: `saved` is null, so the store starts from the seeded prototype approvals and fake threads.
 
 ## Product decisions already made
 
@@ -82,7 +92,7 @@ The frontend deliberately consumes only "text + `git diff`", which is the contra
 
 ## Not built yet
 
-sqlite storage for drafts, resolutions and approvals; GitHub review threads and PR conversation comments (GraphQL, via `gh api graphql`); submitting a real review; the selected commit range in the URL; keyboard shortcuts; large-file performance work beyond `content-visibility`.
+GitHub review threads and PR conversation comments (GraphQL, via `gh api graphql`); submitting a real review; the selected commit range in the URL; keyboard shortcuts; large-file performance work beyond `content-visibility`.
 
 ## Porting from the old TUI
 
