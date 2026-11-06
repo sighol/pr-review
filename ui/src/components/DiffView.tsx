@@ -141,17 +141,20 @@ export function DiffView({ file, wholeFile }: Props) {
       return;
     }
     clearJump();
+    const threadId = jump.threadId;
     const scroll = () => {
-      const el = containerRef.current?.querySelector<HTMLElement>(`.row[data-ri="${ri}"]`);
+      const q = threadId ? `[data-thread-id="${threadId}"]` : `.row[data-ri="${ri}"]`;
+      const el = containerRef.current?.querySelector<HTMLElement>(q);
       if (!el) return;
       el.scrollIntoView({ block: "center" });
-      return el;
+      return threadId ? (el.querySelector<HTMLElement>(".comment") ?? el) : el;
     };
     requestAnimationFrame(() => {
       const el = scroll();
-      el?.classList.add("flash");
+      const cls = threadId ? "flash-thread" : "flash";
+      el?.classList.add(cls);
       setTimeout(scroll, 150);
-      setTimeout(() => el?.classList.remove("flash"), 1800);
+      setTimeout(() => el?.classList.remove(cls), threadId ? 1100 : 1800);
     });
   }, [jump, rows, rowIndexByLine, file.name, expandGap, clearJump]);
 
@@ -199,7 +202,7 @@ export function DiffView({ file, wholeFile }: Props) {
               />
             )}
             {threadsByRow.get(i)?.map((t) => (
-              <div className="attached" data-ri={i} key={t.id}>
+              <div className="attached" data-ri={i} data-thread-id={t.id} key={t.id}>
                 <ThreadBox thread={t} />
               </div>
             ))}
