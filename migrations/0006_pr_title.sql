@@ -1,1 +1,0 @@
-ALTER TABLE active_pr ADD COLUMN title TEXT NOT NULL DEFAULT '';
