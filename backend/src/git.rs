@@ -113,6 +113,15 @@ pub async fn file_diff(repo: &Path, from: &str, to: &str, path: &str) -> Result<
     .await
 }
 
+/// Whether `path` differs between two commits. A commit that cannot be read (for example one
+/// that was force-pushed away) counts as changed, since we cannot tell.
+pub async fn file_changed(repo: &Path, from: &str, to: &str, path: &str) -> bool {
+    match run(repo, &["diff", "--quiet", from, to, "--", path]).await {
+        Ok(out) => !out.status.success(),
+        Err(_) => true,
+    }
+}
+
 /// Root of the git work tree containing `dir`.
 pub async fn toplevel(dir: &Path) -> Result<PathBuf> {
     let out = run(dir, &["rev-parse", "--show-toplevel"]).await?;
@@ -282,6 +291,17 @@ mod tests {
 
         assert_eq!(files_in_commit(repo.path(), &c1).await.unwrap(), vec!["a.txt"]);
         assert_eq!(files_in_commit(repo.path(), &c2).await.unwrap(), vec!["dir/b.txt"]);
+    }
+
+    #[tokio::test]
+    async fn file_changed_between_commits() {
+        let repo = TestRepo::new();
+        let c1 = repo.commit("one", &[("a.txt", Some("1\n")), ("b.txt", Some("b\n"))]);
+        let c2 = repo.commit("two", &[("a.txt", Some("2\n"))]);
+        assert!(file_changed(repo.path(), &c1, &c2, "a.txt").await);
+        assert!(!file_changed(repo.path(), &c1, &c2, "b.txt").await);
+        assert!(file_changed(repo.path(), "0000000000000000000000000000000000000000", &c2, "b.txt").await);
+        assert!(file_changed(repo.path(), "", &c2, "b.txt").await);
     }
 
     #[tokio::test]
