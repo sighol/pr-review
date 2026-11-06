@@ -4,7 +4,7 @@ import { DiscussionNav } from "../components/DiscussionNav";
 import { RangeBar } from "../components/RangeBar";
 import { isFullyApproved, latestCommit, nextUnapproved } from "../lib/approval";
 import { rangeKey, useRangeData } from "../lib/data";
-import { commentable, defaultRange, placeable, rangeLabel, sameRange, stateOf, threadPlacement } from "../lib/range";
+import { commentable, placeable, rangeLabel, sameRange, stateOf, threadPlacement } from "../lib/range";
 import { threadLine, useStore } from "../store";
 
 export function DiffTab() {
@@ -30,13 +30,10 @@ export function DiffTab() {
 
   if (!file || !range) return null;
 
-  const headN = commits.length;
   const approved = approvals.get(file.path);
   const fully = isFullyApproved(file.changedBy, approved);
   const latest = latestCommit(file.changedBy);
   const next = nextUnapproved(files, approvals, file.path);
-  const since = defaultRange(file.changedBy, approved, headN);
-  const full = { from: 0, to: headN };
   const ok = commentable(range, file.changedBy);
   const ready = !!data && data.key === rangeKey(file, range);
   const unchanged = stateOf(file.changedBy, range.from) === stateOf(file.changedBy, range.to);
@@ -84,12 +81,6 @@ export function DiffTab() {
             {rangeLabel(range)}
             {globalRange && sameRange(globalRange, range) ? " · all files" : ""}
           </span>
-          <button disabled={sameRange(range, since)} onClick={() => setRange(file.path, since)}>
-            Since approval
-          </button>
-          <button disabled={sameRange(range, full)} onClick={() => setRange(file.path, full)}>
-            Full PR diff
-          </button>
         </div>
         <div className="toolbar-row">
           <span className={`hint${ok.left && ok.right ? "" : " warn"}`}>{commentHint}</span>
