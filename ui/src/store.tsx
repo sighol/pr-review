@@ -1,6 +1,9 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { LineRange, Side } from "./lib/diff";
+import { parseLine, parseRoute, routeUrl, type Route, type Tab } from "./lib/route";
 import { ALL_THREADS, lastCommentId, type FakeThread, type Resolution } from "./lib/threads";
+
+export type { Tab } from "./lib/route";
 
 export interface FileData {
   name: string;
@@ -18,8 +21,6 @@ export interface Draft {
   text: string;
   initial: string;
 }
-
-export type Tab = "summary" | "diff" | "review";
 
 export interface JumpTarget {
   file: string;
@@ -79,12 +80,81 @@ export function pendingReplies(replies: ReadonlyMap<string, string>): [string, s
   return [...replies].filter(([, text]) => text.trim() !== "");
 }
 
+const currentRoute = () => parseRoute(location.pathname, location.search);
+
+const threadOf = (r: Route) => (r.thread ? ALL_THREADS.find((t) => t.id === r.thread && t.file) : undefined);
+
 export function StoreProvider({ files, children }: { files: FileData[]; children: ReactNode }) {
-  const [tab, setTab] = useState<Tab>(() => {
-    const t = new URLSearchParams(location.search).get("tab");
-    return t === "summary" || t === "review" ? t : "diff";
-  });
-  const [currentFile, setCurrentFile] = useState(files[0]?.name ?? "");
+  const fileNames = useMemo(() => new Set(files.map((f) => f.name)), [files]);
+  const validFile = useCallback(
+    (name: string | undefined, fallback: string) => (name && fileNames.has(name) ? name : fallback),
+    [fileNames],
+  );
+
+  const resolveJump = useCallback(
+    (r: Route, file: string, tick: number): JumpTarget | null => {
+      if (r.tab !== "diff") return null;
+      const thread = threadOf(r);
+      if (thread) return { file: thread.file!, side: thread.side, line: thread.line, threadId: thread.id, tick };
+      const l = parseLine(r.line);
+      return l ? { file, side: l.side, line: l.line, tick } : null;
+    },
+    [],
+  );
+
+  const initial = useMemo(() => {
+    const r = currentRoute();
+    const file = validFile(threadOf(r)?.file ?? r.file, files[0]?.name ?? "");
+    return { tab: r.tab, file, jump: resolveJump(r, file, 1) };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const [tab, setTabState] = useState<Tab>(initial.tab);
+  const [currentFile, setCurrentFileState] = useState(initial.file);
+  const [jump, setJump] = useState<JumpTarget | null>(initial.jump);
+  const currentFileRef = useRef(currentFile);
+  currentFileRef.current = currentFile;
+  const tickRef = useRef(1);
+
+  const apply = useCallback(
+    (r: Route) => {
+      setTabState(r.tab);
+      if (r.tab !== "diff") return;
+      const file = validFile(threadOf(r)?.file ?? r.file, currentFileRef.current);
+      setCurrentFileState(file);
+      const target = resolveJump(r, file, ++tickRef.current);
+      if (target) setJump(target);
+    },
+    [validFile, resolveJump],
+  );
+
+  const navigate = useCallback(
+    (r: Route) => {
+      const url = routeUrl(r);
+      if (url !== location.pathname + location.search) history.pushState(null, "", url);
+      apply(r);
+    },
+    [apply],
+  );
+
+  useEffect(() => {
+    const onPop = () => apply(currentRoute());
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, [apply]);
+
+  const setTab = useCallback(
+    (t: Tab) => navigate(t === "diff" ? { tab: t, file: currentFileRef.current } : { tab: t }),
+    [navigate],
+  );
+  const setCurrentFile = useCallback((name: string) => navigate({ tab: "diff", file: name }), [navigate]);
+  const jumpTo = useCallback(
+    (file: string, side: Side, line: number, threadId?: string) =>
+      navigate(threadId ? { tab: "diff", file, thread: threadId } : { tab: "diff", file, line: `${side}:${line}` }),
+    [navigate],
+  );
+  const clearJump = useCallback(() => setJump(null), []);
+
   const [drafts, setDrafts] = useState<ReadonlyMap<string, Draft>>(new Map());
   const [focus, setFocus] = useState<{ key: string; tick: number } | null>(null);
   const [replies, setReplies] = useState<ReadonlyMap<string, string>>(new Map());
@@ -97,11 +167,12 @@ export function StoreProvider({ files, children }: { files: FileData[]; children
       ),
   );
   const [reviewBody, setReviewBody] = useState("");
-  const [jump, setJump] = useState<JumpTarget | null>(null);
 
-  const createDraft = useCallback((file: string, range: LineRange, initial: string) => {
+  const createDraft = useCallback((file: string, range: LineRange, initialText: string) => {
     const key = draftKey(file, range);
-    setDrafts((prev) => (prev.has(key) ? prev : new Map(prev).set(key, { key, file, range, text: initial, initial })));
+    setDrafts((prev) =>
+      prev.has(key) ? prev : new Map(prev).set(key, { key, file, range, text: initialText, initial: initialText }),
+    );
     setFocus((f) => ({ key, tick: (f?.tick ?? 0) + 1 }));
   }, []);
 
@@ -138,14 +209,6 @@ export function StoreProvider({ files, children }: { files: FileData[]; children
     setResolutions((prev) => new Map(prev).set(t.id, { through: prev.get(t.id)?.through ?? null, reopened: true }));
   }, []);
 
-  const jumpTo = useCallback((file: string, side: Side, line: number, threadId?: string) => {
-    setCurrentFile(file);
-    setTab("diff");
-    setJump((j) => ({ file, side, line, threadId, tick: (j?.tick ?? 0) + 1 }));
-  }, []);
-
-  const clearJump = useCallback(() => setJump(null), []);
-
   const fileByName = useMemo(() => new Map(files.map((f) => [f.name, f])), [files]);
 
   const value = useMemo<Store>(
@@ -177,7 +240,9 @@ export function StoreProvider({ files, children }: { files: FileData[]; children
       files,
       fileByName,
       tab,
+      setTab,
       currentFile,
+      setCurrentFile,
       drafts,
       focus,
       createDraft,

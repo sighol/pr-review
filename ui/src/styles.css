@@ -343,6 +343,7 @@ textarea {
   flex: 1;
 }
 .tab {
+  text-decoration: none;
   display: flex;
   align-items: center;
   gap: 6px;

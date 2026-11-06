@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { routeUrl } from "./lib/route";
 import { PR, isResolved, newCount } from "./lib/threads";
 import { StoreProvider, useStore, type FileData, type Tab } from "./store";
 import { DiffTab } from "./tabs/DiffTab";
@@ -37,7 +38,7 @@ function Panel({ id, children }: { id: Tab; children: ReactNode }) {
 }
 
 function Header() {
-  const { tab, setTab, threads, resolutions } = useStore();
+  const { tab, setTab, currentFile, threads, resolutions } = useStore();
   const payload = useReviewPayload();
   const pending = payload.comments.length + payload.replies.length;
   const withNew = threads.filter((t) => {
@@ -58,10 +59,19 @@ function Header() {
       </div>
       <nav className="tabs">
         {tabs.map((t) => (
-          <button key={t.id} className={`tab${tab === t.id ? " active" : ""}`} onClick={() => setTab(t.id)}>
+          <a
+            key={t.id}
+            href={routeUrl(t.id === "diff" ? { tab: "diff", file: currentFile } : { tab: t.id })}
+            className={`tab${tab === t.id ? " active" : ""}`}
+            onClick={(e) => {
+              if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+              e.preventDefault();
+              setTab(t.id);
+            }}
+          >
             {t.label}
             {t.badge}
-          </button>
+          </a>
         ))}
       </nav>
       <button className="action primary finish" onClick={() => setTab("review")}>
