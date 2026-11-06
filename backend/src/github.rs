@@ -161,6 +161,8 @@ pub struct RawThread {
     /// Current line; None when the thread is outdated.
     pub line: Option<i64>,
     pub original_line: Option<i64>,
+    /// First line of a multi-line thread (it spans `start_line..=line`); None for a single line.
+    pub start_line: Option<i64>,
     /// "LEFT" (the PR base) or "RIGHT" (the PR head).
     pub diff_side: String,
     pub is_outdated: bool,
@@ -180,6 +182,7 @@ query($owner: String!, $repo: String!, $number: Int!, $after: String) {
           path
           line
           originalLine
+          startLine
           diffSide
           isOutdated
           isResolved
@@ -244,6 +247,7 @@ struct GqlThread {
     path: String,
     line: Option<i64>,
     original_line: Option<i64>,
+    start_line: Option<i64>,
     diff_side: String,
     is_outdated: bool,
     is_resolved: bool,
@@ -306,6 +310,7 @@ fn parse_threads_page(json: &[u8]) -> Result<(Vec<RawThread>, Option<String>)> {
                 path: t.path,
                 line: t.line,
                 original_line: t.original_line,
+                start_line: t.start_line,
                 diff_side: t.diff_side,
                 is_outdated: t.is_outdated,
                 is_resolved: t.is_resolved,
@@ -437,13 +442,13 @@ mod tests {
         let json = br#"{"data":{"repository":{"pullRequest":{"reviewThreads":{
             "pageInfo":{"hasNextPage":true,"endCursor":"CUR"},
             "nodes":[
-              {"id":"PRRT_1","path":"src/a.rs","line":12,"originalLine":10,"diffSide":"RIGHT","isOutdated":false,"isResolved":true,
+              {"id":"PRRT_1","path":"src/a.rs","line":12,"originalLine":10,"startLine":10,"diffSide":"RIGHT","isOutdated":false,"isResolved":true,
                "comments":{"nodes":[
                  {"id":"C1","author":{"login":"alice"},"createdAt":"2026-01-02T03:04:05Z","body":"hm","url":"https://github.com/o/r/pull/1#discussion_r1","state":"SUBMITTED","originalCommit":{"oid":"abc"}},
                  {"id":"C2","author":null,"createdAt":"2026-01-03T03:04:05Z","body":"reply","url":"https://github.com/o/r/pull/1#discussion_r2","state":"SUBMITTED","originalCommit":null},
                  {"id":"C3","author":{"login":"me"},"createdAt":"2026-01-04T03:04:05Z","body":"unsent","url":"u3","state":"PENDING","originalCommit":null}
                ]}},
-              {"id":"PRRT_2","path":"b.rs","line":null,"originalLine":3,"diffSide":"LEFT","isOutdated":true,"isResolved":false,
+              {"id":"PRRT_2","path":"b.rs","line":null,"originalLine":3,"startLine":null,"diffSide":"LEFT","isOutdated":true,"isResolved":false,
                "comments":{"nodes":[
                  {"id":"C4","author":{"login":"me"},"createdAt":"2026-01-04T03:04:05Z","body":"only pending","url":"u4","state":"PENDING","originalCommit":{"oid":"def"}}
                ]}}
@@ -460,6 +465,7 @@ mod tests {
             (t.id.as_str(), t.path.as_str(), t.line, t.original_line),
             ("PRRT_1", "src/a.rs", Some(12), Some(10))
         );
+        assert_eq!(t.start_line, Some(10));
         assert_eq!(
             (t.diff_side.as_str(), t.is_outdated, t.is_resolved),
             ("RIGHT", false, true)

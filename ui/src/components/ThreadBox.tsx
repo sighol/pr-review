@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { textToLines } from "../lib/diff";
 import { langFor } from "../lib/highlight";
 import { asOfRange, rangeLabel, sameRange } from "../lib/range";
-import { firstNewIndex, isResolved, newCount, type FakeThread } from "../lib/threads";
+import { firstNewIndex, isResolved, newCount, replacedLines, type FakeThread } from "../lib/threads";
 import { useStore } from "../store";
 import { ExternalLink } from "./ExternalLink";
 import { Markdown } from "./Markdown";
@@ -25,11 +24,8 @@ export function ThreadBox({ thread, expanded = false, preview = false }: Props) 
   const file = thread.file ? fileByName.get(thread.file) : undefined;
   const fileLang = file ? langFor(file.path) : null;
   const replaces = useMemo(
-    () =>
-      file && thread.side === "new" && thread.line !== null
-        ? [textToLines(file.newText)[thread.line - 1] ?? ""]
-        : null,
-    [file, thread.side, thread.line],
+    () => (file ? replacedLines(thread, file.newText) : null),
+    [file, thread.side, thread.line, thread.startLine],
   );
   const range = file ? rangeFor(file) : null;
   const asOf = asOfRange(thread);
@@ -68,6 +64,11 @@ export function ThreadBox({ thread, expanded = false, preview = false }: Props) 
             onClick={() => viewAsOf(thread)}
           >
             View {rangeLabel(asOf)}
+          </button>
+        )}
+        {resolved && !expanded && (
+          <button className="action" onClick={() => setCollapsed(true)}>
+            Hide
           </button>
         )}
         {resolved ? (

@@ -16,8 +16,11 @@ pub struct Thread {
     pub file: Option<String>,
     /// "old" (GitHub LEFT, the PR base) or "new" (RIGHT, the PR head).
     pub side: &'static str,
-    /// Current line; None when the thread is outdated.
+    /// Current line (the last one of a range); None when the thread is outdated.
     pub line: Option<i64>,
+    /// First line of a multi-line thread, so it covers `start_line..=line`; None for a single line
+    /// or an outdated thread.
+    pub start_line: Option<i64>,
     pub original_line: i64,
     /// Number of the commit the thread was made on, or 0 if it is not one of the PR's commits
     /// (force-pushed away) or the thread has no commit (the conversation).
@@ -67,6 +70,11 @@ pub fn build_threads(
                 file: Some(t.path),
                 side: if t.diff_side == "LEFT" { "old" } else { "new" },
                 line: if t.is_outdated { None } else { t.line },
+                start_line: if t.is_outdated {
+                    None
+                } else {
+                    t.start_line.filter(|s| t.line.is_some_and(|l| *s < l))
+                },
                 original_line: t.original_line.or(t.line).unwrap_or(0),
                 commit,
                 github_resolved: t.is_resolved,
@@ -81,6 +89,7 @@ pub fn build_threads(
             file: None,
             side: "new",
             line: Some(0),
+            start_line: None,
             original_line: 0,
             commit: 0,
             github_resolved: false,
@@ -117,6 +126,7 @@ mod tests {
             path: "src/a.rs".into(),
             line,
             original_line: Some(7),
+            start_line: None,
             diff_side: side.into(),
             is_outdated: outdated,
             is_resolved: false,
@@ -150,6 +160,37 @@ mod tests {
         assert_eq!((threads[2].line, threads[2].commit), (None, 1));
         assert_eq!(threads[0].file.as_deref(), Some("src/a.rs"));
         assert_eq!(threads[0].comments.len(), 2);
+    }
+
+    #[test]
+    fn a_multi_line_thread_keeps_its_first_line() {
+        let multi = RawThread {
+            line: Some(51),
+            start_line: Some(49),
+            ..raw_thread("multi", "RIGHT", Some(51), false, None)
+        };
+        let single_with_equal_start = RawThread {
+            start_line: Some(9),
+            ..raw_thread("single", "RIGHT", Some(9), false, None)
+        };
+        let outdated = RawThread {
+            line: None,
+            start_line: Some(3),
+            is_outdated: true,
+            ..raw_thread("old", "RIGHT", None, true, None)
+        };
+        let t = build_threads(
+            vec![multi, single_with_equal_start, outdated],
+            vec![],
+            &HashMap::new(),
+        );
+        assert_eq!((t[0].start_line, t[0].line), (Some(49), Some(51)));
+        assert_eq!(
+            t[1].start_line, None,
+            "a range of one line is a single line"
+        );
+        assert_eq!(t[2].start_line, None);
+        assert_eq!(serde_json::to_value(&t[0]).unwrap()["startLine"], 49);
     }
 
     #[test]

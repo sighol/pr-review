@@ -129,6 +129,8 @@ interface Store {
   setReviewBody: (s: string) => void;
 
   jump: JumpTarget | null;
+  /** The discussion last jumped to (by next/previous, a Summary click or a thread link), if any. */
+  lastThreadId: string | null;
   jumpTo: (file: string, side: Side, line: number, threadId?: string) => void;
   clearJump: () => void;
 }
@@ -279,12 +281,15 @@ export function StoreProvider({
 
   const initial = useMemo(() => {
     const r = currentRoute();
-    const file = validFile(threadOf(threads, r)?.file ?? r.file, files[0]?.name ?? "");
-    return { tab: r.tab, file, jump: resolveJump(r, file, 1) };
+    const thread = threadOf(threads, r);
+    const file = validFile(thread?.file ?? r.file, files[0]?.name ?? "");
+    return { tab: r.tab, file, jump: resolveJump(r, file, 1), thread: thread?.id ?? null };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const [tab, setTabState] = useState<Tab>(initial.tab);
+  /** The discussion last jumped to; next/previous discussion steps from it. */
+  const [lastThreadId, setLastThreadId] = useState<string | null>(initial.thread);
   const [currentFile, setCurrentFileState] = useState(initial.file);
   const [jump, setJump] = useState<JumpTarget | null>(initial.jump);
   const currentFileRef = useRef(currentFile);
@@ -301,7 +306,9 @@ export function StoreProvider({
   const apply = (r: Route) => {
     setTabState(r.tab);
     if (r.tab !== "diff") return;
-    const file = validFile(threadOf(threads, r)?.file ?? r.file, currentFileRef.current);
+    const thread = threadOf(threads, r);
+    if (thread) setLastThreadId(thread.id);
+    const file = validFile(thread?.file ?? r.file, currentFileRef.current);
     setCurrentFileState(file);
     ensureVisible(r, file);
     const target = resolveJump(r, file, ++tickRef.current);
@@ -523,6 +530,7 @@ export function StoreProvider({
       reviewBody,
       setReviewBody,
       jump,
+      lastThreadId,
       jumpTo,
       clearJump,
     }),
@@ -560,6 +568,7 @@ export function StoreProvider({
       reviewBody,
       setReviewBody,
       jump,
+      lastThreadId,
       jumpTo,
       clearJump,
     ],

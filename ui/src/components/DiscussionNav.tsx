@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { navigable, pickInOtherFile, pickRendered, type Box } from "../lib/nav";
+import { navigable, pickNeighbor } from "../lib/nav";
 import { isResolved, type FakeThread } from "../lib/threads";
 import { threadLine, useStore } from "../store";
 
@@ -14,7 +14,7 @@ const KEYS: Record<string, [1 | -1, Kind]> = {
 
 /** Previous/next discussion buttons for the Diff toolbar, with the n/p and Shift+N/P keys. */
 export function DiscussionNav() {
-  const { threads, resolutions, files, currentFile, tab, jumpTo } = useStore();
+  const { threads, resolutions, files, currentFile, lastThreadId, tab, jumpTo } = useStore();
   const [notice, setNotice] = useState<string | null>(null);
   const fileOrder = useMemo(() => files.map((f) => f.name), [files]);
 
@@ -31,17 +31,7 @@ export function DiscussionNav() {
   const go = useCallback(
     (dir: 1 | -1, kind: Kind) => {
       const keep = (t: FakeThread) => kind === "any" || isOpen(t);
-      const byId = new Map(threads.map((t) => [t.id, t]));
-      // Discussions on screen are measured from the middle of the viewport, where jumping puts one.
-      const boxes: Box[] = [...document.querySelectorAll<HTMLElement>(".diff [data-thread-id]")].map((el) => {
-        const r = el.getBoundingClientRect();
-        return { id: el.dataset.threadId!, top: r.top, bottom: r.bottom };
-      });
-      const onScreen = pickRendered(boxes, window.innerHeight / 2, dir, (id) => {
-        const t = byId.get(id);
-        return !!t && keep(t);
-      });
-      const target = onScreen ? byId.get(onScreen) : pickInOtherFile(threads, fileOrder, currentFile, dir, keep);
+      const target = pickNeighbor(threads, fileOrder, currentFile, lastThreadId, dir, keep);
       if (!target?.file) {
         const what = kind === "unresolved" ? "unresolved discussions" : "discussions";
         setNotice(`No more ${what} ${dir === 1 ? "after" : "before"} this`);
@@ -50,7 +40,7 @@ export function DiscussionNav() {
       setNotice(null);
       jumpTo(target.file, target.side, threadLine(target), target.id);
     },
-    [threads, fileOrder, currentFile, isOpen, jumpTo],
+    [threads, fileOrder, currentFile, lastThreadId, isOpen, jumpTo],
   );
 
   useEffect(() => {

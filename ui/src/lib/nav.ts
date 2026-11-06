@@ -1,59 +1,44 @@
 import { placeable } from "./range";
 import type { FakeThread } from "./threads";
 
-/** A discussion box on screen, in viewport coordinates. */
-export interface Box {
-  id: string;
-  top: number;
-  bottom: number;
-}
-
 const lineOf = (t: FakeThread) => t.line ?? t.originalLine;
-
-/**
- * The discussion to go to among those rendered on screen, measured from `centerY` (the middle
- * of the viewport, where jumping puts a discussion): the first one that starts below it (next)
- * or the last one that ends above it (previous). The one you are reading, which spans
- * `centerY`, is neither. `boxes` are in document order.
- */
-export function pickRendered(
-  boxes: readonly Box[],
-  centerY: number,
-  dir: 1 | -1,
-  keep: (id: string) => boolean,
-): string | null {
-  const candidates = boxes.filter((b) => keep(b.id));
-  if (dir === 1) return candidates.find((b) => b.top > centerY)?.id ?? null;
-  return [...candidates].reverse().find((b) => b.bottom < centerY)?.id ?? null;
-}
 
 /** Whether a discussion can be navigated to: on a file of the PR, and placeable in some diff. */
 export function navigable(t: FakeThread, fileOrder: readonly string[]): t is FakeThread & { file: string } {
   return t.file !== null && fileOrder.includes(t.file) && placeable(t);
 }
 
+/** The navigable discussions in reading order: by file (in `fileOrder`), then line, then as given. */
+export function inReadingOrder(threads: readonly FakeThread[], fileOrder: readonly string[]): FakeThread[] {
+  return threads
+    .filter((t): t is FakeThread & { file: string } => navigable(t, fileOrder))
+    .map((t, order) => ({ t, order, file: fileOrder.indexOf(t.file) }))
+    .sort((a, b) => a.file - b.file || lineOf(a.t) - lineOf(b.t) || a.order - b.order)
+    .map((x) => x.t);
+}
+
 /**
- * The first (next) or last (previous) discussion of the nearest file after or before `current`,
- * in `fileOrder`, that has one passing `keep`.
+ * The next (dir 1) or previous (dir -1) discussion passing `keep`, stepping from the one last
+ * jumped to. If there is none, or it is on another file than the one being viewed, it steps from
+ * the start of the viewed file. Does not wrap: null at either end.
  */
-export function pickInOtherFile(
+export function pickNeighbor(
   threads: readonly FakeThread[],
   fileOrder: readonly string[],
-  current: string,
+  currentFile: string,
+  lastId: string | null,
   dir: 1 | -1,
   keep: (t: FakeThread) => boolean,
 ): FakeThread | null {
-  const index = (t: FakeThread & { file: string }) => fileOrder.indexOf(t.file);
-  const here = fileOrder.indexOf(current);
-  const candidates = threads
-    .filter((t): t is FakeThread & { file: string } => navigable(t, fileOrder) && keep(t))
-    .filter((t) => (dir === 1 ? index(t) > here : index(t) < here));
-  if (candidates.length === 0) return null;
+  const ordered = inReadingOrder(threads, fileOrder);
+  const last = ordered.findIndex((t) => t.id === lastId && t.file === currentFile);
+  if (last >= 0) {
+    const rest = dir === 1 ? ordered.slice(last + 1) : ordered.slice(0, last).reverse();
+    return rest.find(keep) ?? null;
+  }
 
-  const nearest = dir === 1 ? Math.min(...candidates.map(index)) : Math.max(...candidates.map(index));
-  const inFile = candidates
-    .filter((t) => index(t) === nearest)
-    .map((t, order) => ({ t, order }))
-    .sort((a, b) => lineOf(a.t) - lineOf(b.t) || a.order - b.order);
-  return (dir === 1 ? inFile[0] : inFile[inFile.length - 1]).t;
+  const here = fileOrder.indexOf(currentFile);
+  const fileIndex = (t: FakeThread) => fileOrder.indexOf(t.file!);
+  if (dir === 1) return ordered.find((t) => fileIndex(t) >= here && keep(t)) ?? null;
+  return [...ordered].reverse().find((t) => fileIndex(t) < here && keep(t)) ?? null;
 }

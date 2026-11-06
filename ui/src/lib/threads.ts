@@ -1,4 +1,4 @@
-import type { Side } from "./diff";
+import { textToLines, type Side } from "./diff";
 import { relativeTime } from "./time";
 
 export interface FakeComment {
@@ -17,6 +17,8 @@ export interface FakeThread {
   side: Side;
   /** Current line (old-side threads: line in the PR base); null when the thread is outdated. */
   line: number | null;
+  /** First line of a multi-line thread, which then covers `startLine..=line`; null/absent for one line. */
+  startLine?: number | null;
   /** The line in the version the reviewer saw, i.e. at `commit`. */
   originalLine: number;
   /** The commit the thread was made on (GitHub's `originalCommit`); 0 when that commit is not in the PR. */
@@ -34,11 +36,22 @@ export interface ThreadJson {
   file: string | null;
   side: Side;
   line: number | null;
+  startLine: number | null;
   originalLine: number;
   /** Commit number; 0 when unknown (force-pushed away) or for the conversation. */
   commit: number;
   githubResolved: boolean;
   comments: { id: string; author: string; createdAt: string; body: string; url: string }[];
+}
+
+/**
+ * The current lines a suggestion in this thread would replace: the thread's whole range on the
+ * new side of `newText` (the file at the PR head), or null when it has no current place there.
+ */
+export function replacedLines(t: Pick<FakeThread, "side" | "line" | "startLine">, newText: string): string[] | null {
+  if (t.side !== "new" || t.line === null) return null;
+  const first = t.startLine != null && t.startLine < t.line ? t.startLine : t.line;
+  return textToLines(newText).slice(first - 1, t.line);
 }
 
 export function threadFromJson(j: ThreadJson, now: number): FakeThread {
