@@ -362,11 +362,30 @@ textarea {
   flex: 1;
   border-top: 1px solid var(--accent);
 }
+/* Each comment of a thread is its own block, so where one ends and the next begins is clear. */
+.thread-comment {
+  padding: 8px 12px 10px;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.thread-item + .thread-item {
+  margin-top: 12px;
+}
+.thread-comment .comment-head {
+  margin-bottom: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.thread-comment .comment-head strong {
+  color: var(--fg);
+  font-size: 15px;
+  font-weight: 600;
+}
 .thread-comment.new {
-  background: rgba(56, 139, 253, 0.08);
-  box-shadow: -8px 0 0 rgba(56, 139, 253, 0.08), inset 2px 0 0 var(--accent);
-  padding-left: 8px;
-  margin-left: -8px;
+  background: rgba(56, 139, 253, 0.09);
+  border-color: rgba(56, 139, 253, 0.55);
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 .comment-head {
   display: flex;
@@ -384,11 +403,6 @@ textarea {
 .action.small {
   padding: 0 8px;
   font-size: 12px;
-}
-.thread-comment + .thread-comment {
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid var(--border);
 }
 .body {
   white-space: pre-wrap;
