@@ -553,9 +553,17 @@ textarea {
 }
 .review-item-head {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  gap: 10px;
   margin-bottom: 6px;
+  font-size: 12px;
+}
+.review-item-head .spacer {
+  flex: 1;
+}
+.status.new-thread {
+  color: var(--muted);
+  font-weight: 400;
 }
 .review-item .comment {
   max-width: none;

@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { CommentBox, describeRange } from "../components/CommentBox";
 import { ThreadBox } from "../components/ThreadBox";
-import { CONVERSATION_ID } from "../lib/threads";
+import { CONVERSATION_ID, isResolved, newCount, type FakeThread } from "../lib/threads";
 import { snippetFor } from "../lib/snippet";
 import { isRealDraft, pendingReplies, useStore, type Draft, type FileData } from "../store";
 
@@ -22,6 +22,19 @@ function Snippet({ file, draft }: { file: FileData; draft: Draft }) {
       ))}
       {lines.length > shown.length && <div className="snip-more">… {lines.length - shown.length} more lines</div>}
     </div>
+  );
+}
+
+function ThreadStatus({ thread }: { thread: FakeThread }) {
+  const { resolutions } = useStore();
+  const r = resolutions.get(thread.id);
+  const resolved = isResolved(thread, r);
+  const n = newCount(thread, r);
+  return (
+    <>
+      <span className={`status ${resolved ? "resolved" : "open"}`}>{resolved ? "✓ Resolved" : "● Open"}</span>
+      {n > 0 && <span className="badge-new">{n} new</span>}
+    </>
   );
 }
 
@@ -92,6 +105,8 @@ export function ReviewTab() {
                     <span className="loc">
                       {file.path} · {describeRange(d.range)}
                     </span>
+                    <span className="status new-thread">New thread</span>
+                    <span className="spacer" />
                     <button className="link" onClick={() => jumpTo(d.file, d.range.side, d.range.end)}>
                       Jump to line →
                     </button>
@@ -107,6 +122,8 @@ export function ReviewTab() {
                   <span className="loc">
                     {t.id === CONVERSATION_ID ? "Conversation" : `${fileByName.get(t.file!)?.path}:${t.line}`} · reply
                   </span>
+                  <ThreadStatus thread={t} />
+                  <span className="spacer" />
                   {t.file && (
                     <button className="link" onClick={() => jumpTo(t.file!, t.side, t.line)}>
                       Jump to line →
