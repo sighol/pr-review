@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { textToLines } from "../lib/diff";
 import { langFor } from "../lib/highlight";
+import { asOfRange, rangeLabel, sameRange } from "../lib/range";
 import { firstNewIndex, isResolved, newCount, type FakeThread } from "../lib/threads";
 import { useStore } from "../store";
 import { Markdown } from "./Markdown";
@@ -14,7 +15,7 @@ interface Props {
 }
 
 export function ThreadBox({ thread, expanded = false, preview = false }: Props) {
-  const { resolutions, resolveThread, reopenThread, fileByName } = useStore();
+  const { resolutions, resolveThread, reopenThread, fileByName, rangeFor, viewAsOf } = useStore();
   const resolution = resolutions.get(thread.id);
   const resolved = isResolved(thread, resolution);
   const newFrom = firstNewIndex(thread, resolution);
@@ -23,9 +24,17 @@ export function ThreadBox({ thread, expanded = false, preview = false }: Props) 
   const file = thread.file ? fileByName.get(thread.file) : undefined;
   const fileLang = file ? langFor(file.path) : null;
   const replaces = useMemo(
-    () => (file && thread.side === "new" ? [textToLines(file.newText)[thread.line - 1] ?? ""] : null),
+    () =>
+      file && thread.side === "new" && thread.line !== null
+        ? [textToLines(file.newText)[thread.line - 1] ?? ""]
+        : null,
     [file, thread.side, thread.line],
   );
+  const range = file ? rangeFor(file) : null;
+  const asOf = asOfRange(thread);
+  // Only offer the older view when the comment was made on an earlier version of the file,
+  // and only when clicking would actually change the diff.
+  const showAsOf = !!file && !!range && thread.commit < Math.max(...file.changedBy) && !sameRange(range, asOf);
 
   useEffect(() => {
     setCollapsed(resolved && !expanded);
@@ -50,6 +59,15 @@ export function ThreadBox({ thread, expanded = false, preview = false }: Props) 
           GitHub: {thread.githubResolved ? "resolved" : "unresolved"}
         </span>
         <span className="spacer" />
+        {showAsOf && (
+          <button
+            className="action small"
+            title={`Show the diff as the reviewer saw it: ${rangeLabel(asOf)}`}
+            onClick={() => viewAsOf(thread)}
+          >
+            View {rangeLabel(asOf)}
+          </button>
+        )}
         {resolved ? (
           <button className="action" onClick={() => reopenThread(thread)}>
             Reopen

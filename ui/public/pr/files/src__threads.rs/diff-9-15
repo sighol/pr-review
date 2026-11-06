@@ -1,0 +1,29 @@
+diff --git a/src/threads.rs b/src/threads.rs
+index d9a4846..f7e3257 100644
+--- a/src/threads.rs
++++ b/src/threads.rs
+@@ -148,12 +148,22 @@ pub async fn run(
+             None => rendered.push_str(&skin.term_text("## Conversation\n").to_string()),
+         }
+ 
++        let resolved_commit = resolutions.get(&discussion.id);
++
+         let mut markdown = String::new();
+         for comment in &discussion.comments {
+             markdown.push_str(&format!(
+-                "**{}** *{}*\n\n{}\n\n---\n\n",
+-                comment.author, comment.created_at, comment.body
++                "**{}** *{}* {}\n\n{}\n\n---\n\n",
++                comment.author,
++                comment.created_at,
++                hyperlink(&comment.url, "\u{1F517}"),
++                comment.body
+             ));
++            if let Some(resolved) = resolved_commit
++                && resolved == &comment.id
++            {
++                markdown.push_str("\n**\x1b[34m--- NEW COMMENTS ---\x1b[0m **\n\n")
++            }
+         }
+         rendered.push_str(&skin.term_text(&markdown).to_string());
+ 

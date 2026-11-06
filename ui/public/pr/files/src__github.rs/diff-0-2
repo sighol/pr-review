@@ -1,0 +1,52 @@
+diff --git a/src/github.rs b/src/github.rs
+index 854d62d..cb85df7 100644
+--- a/src/github.rs
++++ b/src/github.rs
+@@ -64,6 +64,9 @@ pub struct ReviewComment {
+     /// The diff hunk this comment was made against, exactly as GitHub
+     /// recorded it at the time — unset for top-level conversation comments.
+     pub diff_hunk: String,
++    /// The commit this comment's diff hunk is anchored to — unset for
++    /// top-level conversation comments.
++    pub original_commit_oid: Option<String>,
+ }
+ 
+ /// An inline code-review comment thread, with GitHub's own resolved flag
+@@ -136,6 +139,13 @@ struct CommentNode {
+     body: String,
+     #[serde(rename = "diffHunk", default)]
+     diff_hunk: String,
++    #[serde(rename = "originalCommit")]
++    original_commit: Option<OriginalCommit>,
++}
++
++#[derive(Deserialize)]
++struct OriginalCommit {
++    oid: String,
+ }
+ 
+ #[derive(Deserialize)]
+@@ -160,6 +170,7 @@ query($owner: String!, $repo: String!, $number: Int!, $after: String) {
+               createdAt
+               body
+               diffHunk
++              originalCommit { oid }
+             }
+           }
+         }
+@@ -229,6 +240,7 @@ pub async fn fetch_review_threads(
+                     created_at: c.created_at,
+                     body: c.body,
+                     diff_hunk: c.diff_hunk,
++                    original_commit_oid: c.original_commit.map(|oc| oc.oid),
+                 })
+                 .collect();
+             comments.sort_by_key(|c| c.created_at);
+@@ -307,6 +319,7 @@ pub async fn fetch_pr_conversation_comments(
+             created_at: c.created_at,
+             body: c.body,
+             diff_hunk: String::new(),
++            original_commit_oid: None,
+         })
+         .collect();
+     comments.sort_by_key(|c| c.created_at);

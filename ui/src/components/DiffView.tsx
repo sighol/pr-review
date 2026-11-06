@@ -15,15 +15,16 @@ import {
 } from "../lib/diff";
 import { tokenize } from "../lib/highlight";
 import type { FakeThread } from "../lib/threads";
-import { useStore, type Draft, type FileData, type FileVersion } from "../store";
+import type { RangeData } from "../lib/data";
+import { commentable, threadPlacement, type CommitRange } from "../lib/range";
+import { useStore, type Draft, type FileData } from "../store";
 import { CommentBox } from "./CommentBox";
 import { ThreadBox } from "./ThreadBox";
 
 interface Props {
   file: FileData;
-  version: FileVersion;
-  /** Diffing from an approved commit, not the PR base: old-side line numbers aren't the base's. */
-  partial: boolean;
+  data: RangeData;
+  range: CommitRange;
   wholeFile: boolean;
 }
 
@@ -35,10 +36,11 @@ interface Selection {
   hi: number;
 }
 
-export function DiffView({ file, version, partial, wholeFile }: Props) {
+export function DiffView({ file, data, range, wholeFile }: Props) {
   const { threads, drafts, jump, clearJump, createDraft: storeCreateDraft } = useStore();
-  const { newText, path } = file;
-  const { oldText, diffText } = version;
+  const { path } = file;
+  const { oldText, newText, diffText } = data;
+  const canComment = commentable(range, file.changedBy);
   const oldLines = useMemo(() => textToLines(oldText), [oldText]);
   const newLines = useMemo(() => textToLines(newText), [newText]);
   const hunks = useMemo(() => parseUnifiedDiff(diffText), [diffText]);
@@ -125,16 +127,31 @@ export function DiffView({ file, version, partial, wholeFile }: Props) {
     setExpandedGaps((prev) => new Set(prev).add(id));
   }, []);
 
+  const placedLine = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const t of threads) {
+      if (t.file !== file.name) continue;
+      const line = threadPlacement(t, range, file.changedBy);
+      if (line !== null) m.set(t.id, line);
+    }
+    return m;
+  }, [threads, file.name, file.changedBy, range]);
+
   useEffect(() => {
     if (!jump || jump.file !== file.name) return;
-    const ri = rowIndexByLine.get(`${jump.side}:${jump.line}`);
+    const placed = jump.threadId ? placedLine.get(jump.threadId) : jump.line;
+    if (placed === undefined) {
+      clearJump();
+      return;
+    }
+    const ri = rowIndexByLine.get(`${jump.side}:${placed}`);
     if (ri === undefined) {
       const hidingGap = rows.find(
         (r) =>
           r.type === "gap" &&
           (jump.side === "old"
-            ? jump.line >= r.oldStart && jump.line < r.oldStart + r.count
-            : jump.line >= r.newStart && jump.line < r.newStart + r.count),
+            ? placed >= r.oldStart && placed < r.oldStart + r.count
+            : placed >= r.newStart && placed < r.newStart + r.count),
       );
       if (hidingGap) {
         expandGap(hidingGap.id);
@@ -159,7 +176,7 @@ export function DiffView({ file, version, partial, wholeFile }: Props) {
       setTimeout(scroll, 150);
       setTimeout(() => el?.classList.remove(cls), threadId ? 1100 : 1800);
     });
-  }, [jump, rows, rowIndexByLine, file.name, expandGap, clearJump]);
+  }, [jump, rows, rowIndexByLine, placedLine, file.name, expandGap, clearJump]);
 
   const onCodeDown = useCallback((e: React.PointerEvent) => {
     const code = (e.target as HTMLElement).closest<HTMLElement>("[data-code-side]");
@@ -169,22 +186,23 @@ export function DiffView({ file, version, partial, wholeFile }: Props) {
   const threadsByRow = useMemo(() => {
     const m = new Map<number, FakeThread[]>();
     for (const t of threads) {
-      if (t.file !== file.name || (partial && t.side === "old")) continue;
-      const ri = rowIndexByLine.get(`${t.side}:${t.line}`);
+      const line = placedLine.get(t.id);
+      if (t.file !== file.name || line === undefined) continue;
+      const ri = rowIndexByLine.get(`${t.side}:${line}`);
       if (ri !== undefined) m.set(ri, [...(m.get(ri) ?? []), t]);
     }
     return m;
-  }, [threads, file.name, partial, rowIndexByLine]);
+  }, [threads, file.name, placedLine, rowIndexByLine]);
 
   const draftsByRow = useMemo(() => {
     const m = new Map<number, Draft[]>();
     for (const d of drafts.values()) {
-      if (d.file !== file.name || (partial && d.range.side === "old")) continue;
+      if (d.file !== file.name || !(d.range.side === "old" ? canComment.left : canComment.right)) continue;
       const ri = rowIndexByLine.get(`${d.range.side}:${d.range.end}`);
       if (ri !== undefined) m.set(ri, [...(m.get(ri) ?? []), d]);
     }
     return m;
-  }, [drafts, file.name, partial, rowIndexByLine]);
+  }, [drafts, file.name, canComment.left, canComment.right, rowIndexByLine]);
 
   return (
     <div className="diff" ref={containerRef} onPointerDown={onCodeDown}>
@@ -201,7 +219,8 @@ export function DiffView({ file, version, partial, wholeFile }: Props) {
                 oldTokens={oldTokens}
                 newTokens={newTokens}
                 selectedSide={inSel}
-                leftEnabled={!partial}
+                leftEnabled={canComment.left}
+                rightEnabled={canComment.right}
                 onGutterDown={onGutterDown}
               />
             )}
@@ -239,14 +258,15 @@ interface LineRowProps {
   newTokens: Tokens;
   selectedSide: Side | null;
   leftEnabled: boolean;
+  rightEnabled: boolean;
   onGutterDown: (e: React.PointerEvent, side: Side, ri: number) => void;
 }
 
-const LineRow = memo(function LineRow({ row, ri, oldTokens, newTokens, selectedSide, leftEnabled, onGutterDown }: LineRowProps) {
+const LineRow = memo(function LineRow({ row, ri, oldTokens, newTokens, selectedSide, leftEnabled, rightEnabled, onGutterDown }: LineRowProps) {
   return (
     <div className="row" data-ri={ri}>
       <Pane cell={row.left} side="old" ri={ri} tokens={oldTokens} selected={selectedSide === "old"} enabled={leftEnabled} onGutterDown={onGutterDown} />
-      <Pane cell={row.right} side="new" ri={ri} tokens={newTokens} selected={selectedSide === "new"} enabled onGutterDown={onGutterDown} />
+      <Pane cell={row.right} side="new" ri={ri} tokens={newTokens} selected={selectedSide === "new"} enabled={rightEnabled} onGutterDown={onGutterDown} />
     </div>
   );
 });
@@ -269,7 +289,7 @@ function Pane({ cell, side, ri, tokens, selected, enabled, onGutterDown }: PaneP
     <>
       <div
         className={`gutter ${cls}${changed ? " clickable" : ""}`}
-        title={!enabled && isChanged(cell) ? "Left-side comments need the full PR diff" : undefined}
+        title={!enabled && isChanged(cell) ? (side === "old" ? "Left-side comments need a range that starts at the PR base" : "Right-side comments need a range that ends at the latest version") : undefined}
         onPointerDown={changed ? (e) => onGutterDown(e, side, ri) : undefined}
         onMouseDown={changed ? (e) => e.preventDefault() : undefined}
       >

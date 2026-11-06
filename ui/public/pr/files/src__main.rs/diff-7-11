@@ -1,0 +1,44 @@
+diff --git a/src/main.rs b/src/main.rs
+index 63a37fc..ff3772a 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -57,12 +57,11 @@ async fn main() -> Result<()> {
+ 
+     if let Command::Threads {
+         pr_number,
+-        repo,
+         side_by_side,
+     } = &cli.command
+     {
+         let (repo_path, owner, repo_name, pool, pr_number, _) =
+-            resolve_pr(repo, *pr_number).await?;
++            resolve_pr(&cli.repo, *pr_number).await?;
+         return threads::run(
+             &repo_path,
+             &pool,
+@@ -78,22 +77,20 @@ async fn main() -> Result<()> {
+         match &cli.command {
+             Command::Diff {
+                 pr_number,
+-                repo,
+                 fetch,
+                 commit,
+                 side_by_side,
+-            } => (*pr_number, repo, *fetch, commit, true, *side_by_side),
++            } => (*pr_number, cli.repo, *fetch, commit, true, *side_by_side),
+             Command::Status {
+                 pr_number,
+-                repo,
+                 fetch,
+                 commit,
+-            } => (*pr_number, repo, *fetch, commit, false, false),
++            } => (*pr_number, cli.repo, *fetch, commit, false, false),
+             Command::Threads { .. } => unreachable!("handled above"),
+         };
+ 
+     let (repo_path, owner, repo_name, pool, pr_number, stored_active) =
+-        resolve_pr(repo_arg, pr_number_arg).await?;
++        resolve_pr(&repo_arg, pr_number_arg).await?;
+ 
+     let switching_pr = stored_active
+         .as_ref()

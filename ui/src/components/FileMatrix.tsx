@@ -1,5 +1,7 @@
 import { cellStatus, isFullyApproved, lastApproved } from "../lib/approval";
+import { rangeFromColumns, rangeLabel } from "../lib/range";
 import { useStore } from "../store";
+import { useCommitDrag } from "./useCommitDrag";
 
 function PathLabel({ path }: { path: string }) {
   const i = path.lastIndexOf("/") + 1;
@@ -12,13 +14,28 @@ function PathLabel({ path }: { path: string }) {
 }
 
 export function FileMatrix() {
-  const { files, commits, approvals, setCurrentFile } = useStore();
+  const { files, commits, approvals, setCurrentFile, globalRange, setAllRanges } = useStore();
   const fullyApproved = files.filter((f) => isFullyApproved(f.changedBy, approvals.get(f.path))).length;
+  const { drag, start } = useCommitDrag((a, b) => setAllRanges(rangeFromColumns(a, b)));
+  const shown = drag ? rangeFromColumns(drag.a, drag.b) : globalRange;
+  const inRange = (n: number) => !!shown && n > shown.from && n <= shown.to;
 
   return (
     <>
       <p className="muted">
         {fullyApproved} of {files.length} files approved · {commits.length} commits. Click a file to review it.
+      </p>
+      <p className="muted range-note">
+        {globalRange ? (
+          <>
+            Every file opens at <strong>{rangeLabel(globalRange)}</strong>.{" "}
+            <button className="link" onClick={() => setAllRanges(null)}>
+              Clear
+            </button>
+          </>
+        ) : (
+          "Drag across the commit numbers to open every file at one commit range."
+        )}
       </p>
       <div className="matrix" style={{ ["--n" as string]: commits.length }}>
         <div className="mx-row mx-head">
@@ -26,7 +43,13 @@ export function FileMatrix() {
           <span className="mx-file">FILE</span>
           <span className="mx-stat" />
           {commits.map((c) => (
-            <span className="mx-cell" key={c.n} title={`#${c.n} ${c.short} ${c.subject}`}>
+            <span
+              className={`mx-cell mx-pick${inRange(c.n) ? " in-range" : ""}`}
+              key={c.n}
+              data-n={c.n}
+              title={`#${c.n} ${c.short} ${c.subject}`}
+              onPointerDown={start(c.n)}
+            >
               {c.n}
             </span>
           ))}
@@ -49,8 +72,9 @@ export function FileMatrix() {
                 const inSpan = fully || (last !== null && c.n <= last);
                 return (
                   <span
-                    className={`mx-cell ${status}${inSpan ? " span" : ""}`}
+                    className={`mx-cell ${status}${inSpan ? " span" : ""}${inRange(c.n) ? " in-range" : ""}`}
                     key={c.n}
+                    data-n={c.n}
                     title={`#${c.n} ${c.short} ${c.subject}${status === "none" ? "" : ` · ${status}`}`}
                   >
                     {status === "approved" ? "✓" : status === "unapproved" ? "●" : ""}

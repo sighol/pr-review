@@ -1,0 +1,12 @@
+diff --git a/src/interactive.rs b/src/interactive.rs
+index 91d0645..c0c534a 100644
+--- a/src/interactive.rs
++++ b/src/interactive.rs
+@@ -45,6 +45,7 @@ pub async fn run(
+             }
+             KeyCode::Enter => {
+                 redraw(files, commits, &approvals, Some(selected_idx));
++                println!();
+                 diff::show_diff_and_prompt(
+                     repo_path,
+                     pool,

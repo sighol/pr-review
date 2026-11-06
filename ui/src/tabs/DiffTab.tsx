@@ -1,50 +1,58 @@
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 import { DiffView } from "../components/DiffView";
-import {
-  diffFrom,
-  isFullyApproved,
-  lastApproved,
-  latestCommit,
-  nextUnapproved,
-} from "../lib/approval";
-import { useStore } from "../store";
+import { RangeBar } from "../components/RangeBar";
+import { isFullyApproved, latestCommit, nextUnapproved } from "../lib/approval";
+import { rangeKey, useRangeData } from "../lib/data";
+import { commentable, defaultRange, rangeLabel, sameRange, stateOf, threadPlacement } from "../lib/range";
+import { threadLine, useStore } from "../store";
 
 export function DiffTab() {
-  const { files, fileByName, currentFile, setCurrentFile, approvals, approveFile, unapproveFile, jump } = useStore();
+  const {
+    files,
+    fileByName,
+    commits,
+    threads,
+    currentFile,
+    setCurrentFile,
+    approvals,
+    approveFile,
+    unapproveFile,
+    rangeFor,
+    setRange,
+    globalRange,
+    jumpTo,
+  } = useStore();
   const [wholeFile, setWholeFile] = useState(false);
-  const [fullDiffFile, setFullDiffFile] = useState<string | null>(null);
   const file = fileByName.get(currentFile);
+  const range = useMemo(() => (file ? rangeFor(file) : undefined), [file, rangeFor]);
+  const data = useRangeData(file, range);
 
-  // Old-side comments only exist against the PR base, so jumping to one needs the full diff.
-  const wantsFull = !!jump && jump.file === currentFile && jump.side === "old";
-  useEffect(() => {
-    if (wantsFull) setFullDiffFile(currentFile);
-  }, [wantsFull, currentFile]);
+  if (!file || !range) return null;
 
-  if (!file) return null;
-
-  const fullDiff = fullDiffFile === file.path || wantsFull;
+  const headN = commits.length;
   const approved = approvals.get(file.path);
   const fully = isFullyApproved(file.changedBy, approved);
-  const last = lastApproved(file.changedBy, approved);
   const latest = latestCommit(file.changedBy);
-  const wanted = diffFrom(file.changedBy, approved, fullDiff);
-  const from = file.versions.has(wanted) ? wanted : 0;
-  const version = file.versions.get(from)!;
-  const partial = from !== 0;
   const next = nextUnapproved(files, approvals, file.path);
-  const canToggle = last !== null && !fully;
+  const since = defaultRange(file.changedBy, approved, headN);
+  const full = { from: 0, to: headN };
+  const ok = commentable(range, file.changedBy);
+  const ready = !!data && data.key === rangeKey(file, range);
+  const unchanged = stateOf(file.changedBy, range.from) === stateOf(file.changedBy, range.to);
+  const hidden = threads.filter((t) => t.file === file.path && threadPlacement(t, range, file.changedBy) === null);
 
   const status = (path: string) => {
     const f = fileByName.get(path)!;
     return isFullyApproved(f.changedBy, approvals.get(path)) ? "✓" : "●";
   };
 
-  const banner = partial
-    ? `Changes since you approved through #${from} (commits #${file.changedBy.find((c) => c > from)}–#${latest})`
-    : fully
-      ? `Approved through #${latest} · showing the full PR diff`
-      : "Full PR diff";
+  const commentHint = ok.left && ok.right
+    ? "Drag a line number on a changed line to comment"
+    : !ok.left && !ok.right
+      ? "Read-only: comments need a range that starts at the PR base (left) or ends at the latest version (right)"
+      : ok.right
+        ? "Right-side comments only: the left side needs a range that starts at the PR base"
+        : "Left-side comments only: the right side needs a range that ends at the latest version";
 
   return (
     <>
@@ -57,21 +65,30 @@ export function DiffTab() {
               </option>
             ))}
           </select>
-          <span className={`range-banner${partial ? " partial" : ""}`}>{banner}</span>
           <span className="spacer" />
-          {canToggle && (
-            <button onClick={() => setFullDiffFile((f) => (f === file.path ? null : file.path))}>
-              {partial ? "Show full PR diff" : `Show since #${last}`}
-            </button>
-          )}
           <button onClick={() => setWholeFile((w) => !w)}>{wholeFile ? "Show changed hunks" : "Show whole file"}</button>
         </div>
         <div className="toolbar-row">
-          <span className="hint">
-            {partial
-              ? "Drag a right-side line number to comment (left side needs the full PR diff)"
-              : "Drag a line number on a changed line to comment"}
+          <RangeBar
+            commits={commits}
+            changedBy={file.changedBy}
+            approved={approved}
+            range={range}
+            onChange={(r) => setRange(file.path, r)}
+          />
+          <span className="range-label">
+            {rangeLabel(range)}
+            {globalRange && sameRange(globalRange, range) ? " · all files" : ""}
           </span>
+          <button disabled={sameRange(range, since)} onClick={() => setRange(file.path, since)}>
+            Since approval
+          </button>
+          <button disabled={sameRange(range, full)} onClick={() => setRange(file.path, full)}>
+            Full PR diff
+          </button>
+        </div>
+        <div className="toolbar-row">
+          <span className={`hint${ok.left && ok.right ? "" : " warn"}`}>{commentHint}</span>
           <span className="spacer" />
           {fully ? (
             <button className="action approved" onClick={() => unapproveFile(file)}>
@@ -87,7 +104,25 @@ export function DiffTab() {
           </button>
         </div>
       </div>
-      <DiffView key={`${file.name}:${from}`} file={file} version={version} partial={partial} wholeFile={wholeFile} />
+      {hidden.length > 0 && (
+        <div className="hidden-threads">
+          {hidden.length} {hidden.length === 1 ? "thread" : "threads"} not shown in this range:
+          {hidden.map((t) => (
+            <button key={t.id} className="link" onClick={() => jumpTo(file.path, t.side, threadLine(t), t.id)}>
+              {t.side === "old" ? "old " : ""}line {threadLine(t)}
+              {t.line === null ? " (outdated)" : ""}
+            </button>
+          ))}
+        </div>
+      )}
+      {ready && unchanged && (
+        <div className="no-changes">No changes to this file in {rangeLabel(range)}.</div>
+      )}
+      {ready ? (
+        <DiffView key={data.key} file={file} data={data} range={range} wholeFile={wholeFile} />
+      ) : (
+        <div className="loading">Loading…</div>
+      )}
     </>
   );
 }

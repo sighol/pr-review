@@ -12,7 +12,12 @@ export interface FakeThread {
   /** Path of the file this thread is on; null for the PR conversation. */
   file: string | null;
   side: Side;
-  line: number;
+  /** Current line (old-side threads: line in the PR base); null when the thread is outdated. */
+  line: number | null;
+  /** The line in the version the reviewer saw, i.e. at `commit`. */
+  originalLine: number;
+  /** The commit the thread was made on (GitHub's `originalCommit`). */
+  commit: number;
   /** GitHub's own resolved flag; independent of our local resolution. */
   githubResolved: boolean;
   /** Seed for local state: the comment id we last resolved this thread through. */
@@ -97,6 +102,8 @@ export const ALL_THREADS: FakeThread[] = [
     file: "src/main.rs",
     side: "new",
     line: 42,
+    originalLine: 42,
+    commit: 18,
     githubResolved: false,
     comments: [
       { id: "c1", author: "alice", when: "3 days ago", body: "Do we really need `PathBuf` here, or can `traverse_up_to_git_repo` borrow?" },
@@ -108,6 +115,8 @@ export const ALL_THREADS: FakeThread[] = [
     file: "src/main.rs",
     side: "new",
     line: 47,
+    originalLine: 47,
+    commit: 18,
     githubResolved: true,
     resolvedThrough: "c4",
     comments: [
@@ -120,6 +129,8 @@ export const ALL_THREADS: FakeThread[] = [
     file: "src/main.rs",
     side: "new",
     line: 73,
+    originalLine: 63,
+    commit: 14,
     githubResolved: false,
     resolvedThrough: "c5",
     comments: [
@@ -133,6 +144,8 @@ export const ALL_THREADS: FakeThread[] = [
     file: "src/threads.rs",
     side: "new",
     line: 170,
+    originalLine: 162,
+    commit: 10,
     githubResolved: false,
     comments: [{ id: "c8", author: "carol", when: "1 day ago", body: "Could the 'NEW COMMENTS' divider use the same colour as the rest of the headings?" }],
   },
@@ -141,6 +154,8 @@ export const ALL_THREADS: FakeThread[] = [
     file: "src/threads.rs",
     side: "new",
     line: 95,
+    originalLine: 95,
+    commit: 16,
     githubResolved: true,
     resolvedThrough: "c10",
     comments: [
@@ -153,6 +168,8 @@ export const ALL_THREADS: FakeThread[] = [
     file: "Cargo.toml",
     side: "old",
     line: 13,
+    originalLine: 13,
+    commit: 1,
     githubResolved: false,
     comments: [{ id: "c11", author: "bob", when: "4 hours ago", body: "What was the reason for staying on `crossterm` 0.28 before?" }],
   },
@@ -161,6 +178,8 @@ export const ALL_THREADS: FakeThread[] = [
     file: "Cargo.toml",
     side: "new",
     line: 13,
+    originalLine: 13,
+    commit: 1,
     githubResolved: false,
     comments: [
       {
@@ -176,6 +195,8 @@ export const ALL_THREADS: FakeThread[] = [
     file: "src/grid.rs",
     side: "new",
     line: 32,
+    originalLine: 32,
+    commit: 13,
     githubResolved: false,
     comments: [{ id: "c13", author: "carol", when: "1 day ago", body: "Could this header move into its own `render_header` function?" }],
   },
@@ -184,6 +205,8 @@ export const ALL_THREADS: FakeThread[] = [
     file: "src/github.rs",
     side: "new",
     line: 131,
+    originalLine: 131,
+    commit: 16,
     githubResolved: true,
     resolvedThrough: "c15",
     comments: [
@@ -196,14 +219,51 @@ export const ALL_THREADS: FakeThread[] = [
     file: "src/db.rs",
     side: "new",
     line: 119,
+    originalLine: 119,
+    commit: 13,
     githubResolved: false,
     comments: [{ id: "c16", author: "bob", when: "6 hours ago", body: "Please add a test for upserting a changed base ref name." }],
+  },
+  {
+    id: "t11",
+    file: "src/db.rs",
+    side: "new",
+    line: null,
+    originalLine: 96,
+    commit: 7,
+    githubResolved: false,
+    comments: [{ id: "c17", author: "alice", when: "5 days ago", body: "This query will get long. Maybe build it from a constant column list?" }],
+  },
+  {
+    id: "t12",
+    file: "src/interactive.rs",
+    side: "new",
+    line: 166,
+    originalLine: 132,
+    commit: 9,
+    githubResolved: false,
+    comments: [{ id: "c18", author: "carol", when: "4 days ago", body: "Should Ctrl-C also restore the cursor before exiting?" }],
+  },
+  {
+    id: "t13",
+    file: "src/main.rs",
+    side: "new",
+    line: 178,
+    originalLine: 133,
+    commit: 7,
+    githubResolved: false,
+    comments: [
+      { id: "c19", author: "bob", when: "5 days ago", body: "Does `merge_base` fail loudly when the base branch isn't fetched yet?" },
+      { id: "c20", author: "sigurd", when: "5 days ago", body: "Yes, it bubbles up the git error with the branch name in it." },
+    ],
   },
   {
     id: CONVERSATION_ID,
     file: null,
     side: "new",
     line: 0,
+    originalLine: 0,
+    commit: 18,
     githubResolved: false,
     resolvedThrough: "cv1",
     comments: [

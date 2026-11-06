@@ -1,0 +1,53 @@
+diff --git a/src/github.rs b/src/github.rs
+index 24e9df8..c0d25e0 100644
+--- a/src/github.rs
++++ b/src/github.rs
+@@ -64,6 +64,8 @@ pub struct ReviewComment {
+     pub author: String,
+     pub created_at: DateTime<Utc>,
+     pub body: String,
++    /// The comment's permalink on github.com.
++    pub url: String,
+     /// The diff hunk this comment was made against, exactly as GitHub
+     /// recorded it at the time — unset for top-level conversation comments.
+     pub diff_hunk: String,
+@@ -140,6 +142,7 @@ struct CommentNode {
+     #[serde(rename = "createdAt")]
+     created_at: DateTime<Utc>,
+     body: String,
++    url: String,
+     #[serde(rename = "diffHunk", default)]
+     diff_hunk: String,
+     #[serde(rename = "originalCommit")]
+@@ -172,6 +175,7 @@ query($owner: String!, $repo: String!, $number: Int!, $after: String) {
+               author { login }
+               createdAt
+               body
++              url
+               diffHunk
+               originalCommit { oid }
+             }
+@@ -242,6 +246,7 @@ pub async fn fetch_review_threads(
+                         .unwrap_or_else(|| "ghost".to_string()),
+                     created_at: c.created_at,
+                     body: c.body,
++                    url: c.url,
+                     diff_hunk: c.diff_hunk,
+                     original_commit_oid: c.original_commit.map(|oc| oc.oid),
+                 })
+@@ -277,6 +282,7 @@ struct ConversationCommentJson {
+     #[serde(rename = "createdAt")]
+     created_at: DateTime<Utc>,
+     body: String,
++    url: String,
+ }
+ 
+ /// Fetches the PR's top-level conversation comments (the ones with no
+@@ -321,6 +327,7 @@ pub async fn fetch_pr_conversation_comments(
+                 .unwrap_or_else(|| "ghost".to_string()),
+             created_at: c.created_at,
+             body: c.body,
++            url: c.url,
+             diff_hunk: String::new(),
+             original_commit_oid: None,
+         })
