@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { CommentBox, describeRange, type BoxMode } from "../components/CommentBox";
+import { CommentBox, describeRange } from "../components/CommentBox";
 import { ThreadBox } from "../components/ThreadBox";
 import type { ReviewEvent as Event, SubmitResult } from "../lib/backend";
 import { CONVERSATION_ID, isResolved, newCount, type FakeThread } from "../lib/threads";
@@ -68,8 +68,8 @@ export function ReviewTab() {
   const [sending, setSending] = useState<Event | null>(null);
   const [result, setResult] = useState<SubmitResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // Shared across every draft box on this tab, so switching one switches them all.
-  const [boxMode, setBoxMode] = useState<BoxMode>("write");
+  // Bumped by "Preview all"; each draft/reply box switches itself to preview mode when this changes.
+  const [previewAllTick, setPreviewAllTick] = useState(0);
   const staleCount = [...drafts.values()].filter((d) => d.stale && isRealDraft(d)).length;
 
   const groups = useMemo(() => {
@@ -115,7 +115,13 @@ export function ReviewTab() {
   return (
     <div className="review">
       <div className="page">
-        <h1>Review</h1>
+        <div className="review-head">
+          <h1>Review</h1>
+          <span className="spacer" />
+          <button className="action small" disabled={pending === 0} onClick={() => setPreviewAllTick((t) => t + 1)}>
+            Preview all
+          </button>
+        </div>
         <p className="muted">
           {pending === 0
             ? "You have no pending comments."
@@ -149,7 +155,7 @@ export function ReviewTab() {
                     </div>
                   )}
                   <Snippet file={file} draft={d} />
-                  <CommentBox draft={d} mode={boxMode} onModeChange={setBoxMode} />
+                  <CommentBox draft={d} preview previewAllTick={previewAllTick} />
                 </div>
               );
             })}
@@ -167,7 +173,7 @@ export function ReviewTab() {
                     </button>
                   )}
                 </div>
-                <ThreadBox thread={t} expanded mode={boxMode} onModeChange={setBoxMode} />
+                <ThreadBox thread={t} expanded preview previewAllTick={previewAllTick} />
               </div>
             ))}
           </section>

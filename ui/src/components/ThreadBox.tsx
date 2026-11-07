@@ -1,9 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { langFor } from "../lib/highlight";
 import { asOfRange, rangeLabel, sameRange } from "../lib/range";
 import { firstNewIndex, isResolved, newCount, replacedLines, type FakeThread } from "../lib/threads";
 import { useStore } from "../store";
-import type { BoxMode } from "./CommentBox";
 import { ExternalLink } from "./ExternalLink";
 import { Markdown } from "./Markdown";
 
@@ -11,12 +10,13 @@ interface Props {
   thread: FakeThread;
   /** Never collapse, even when resolved (used on the Review tab). */
   expanded?: boolean;
-  /** Shared write/preview mode for every draft box on the Review tab; omit to always show the textarea. */
-  mode?: BoxMode;
-  onModeChange?: (mode: BoxMode) => void;
+  /** Show the write/preview toggle under the reply draft (Review tab only). */
+  preview?: boolean;
+  /** Bumped by "Preview all" on the Review tab to switch the reply draft to preview mode. */
+  previewAllTick?: number;
 }
 
-export function ThreadBox({ thread, expanded = false, mode, onModeChange }: Props) {
+export function ThreadBox({ thread, expanded = false, preview = false, previewAllTick }: Props) {
   const { resolutions, resolveThread, reopenThread, fileByName, rangeFor, viewAsOf } = useStore();
   const resolution = resolutions.get(thread.id);
   const resolved = isResolved(thread, resolution);
@@ -107,7 +107,13 @@ export function ThreadBox({ thread, expanded = false, mode, onModeChange }: Prop
           </div>
         );
       })}
-      <ReplyBox threadId={thread.id} fileLang={fileLang} replaces={replaces} mode={mode} onModeChange={onModeChange} />
+      <ReplyBox
+        threadId={thread.id}
+        fileLang={fileLang}
+        replaces={replaces}
+        preview={preview}
+        previewAllTick={previewAllTick}
+      />
     </div>
   );
 }
@@ -116,19 +122,26 @@ export function ReplyBox({
   threadId,
   fileLang,
   replaces,
-  mode,
-  onModeChange,
+  preview = false,
+  previewAllTick,
 }: {
   threadId: string;
   fileLang: string | null;
   replaces: string[] | null;
-  mode?: BoxMode;
-  onModeChange?: (mode: BoxMode) => void;
+  preview?: boolean;
+  previewAllTick?: number;
 }) {
   const { replies, setReply } = useStore();
   const text = replies.get(threadId);
-  const showToggle = mode !== undefined;
-  const effectiveMode = mode ?? "write";
+  const [mode, setMode] = useState<"write" | "preview">("write");
+  const lastPreviewAllTick = useRef(previewAllTick);
+
+  useEffect(() => {
+    if (previewAllTick !== undefined && previewAllTick !== lastPreviewAllTick.current) {
+      lastPreviewAllTick.current = previewAllTick;
+      setMode("preview");
+    }
+  }, [previewAllTick]);
 
   if (text === undefined) {
     return (
@@ -146,18 +159,12 @@ export function ReplyBox({
         <button className="link reply-delete" onClick={() => setReply(threadId, null)}>
           delete
         </button>
-        {showToggle && (
+        {preview && (
           <div className="mode-toggle">
-            <button
-              className={`mode-tab${effectiveMode === "write" ? " active" : ""}`}
-              onClick={() => onModeChange?.("write")}
-            >
+            <button className={`mode-tab${mode === "write" ? " active" : ""}`} onClick={() => setMode("write")}>
               Write
             </button>
-            <button
-              className={`mode-tab${effectiveMode === "preview" ? " active" : ""}`}
-              onClick={() => onModeChange?.("preview")}
-            >
+            <button className={`mode-tab${mode === "preview" ? " active" : ""}`} onClick={() => setMode("preview")}>
               Preview
             </button>
           </div>
@@ -169,9 +176,9 @@ export function ReplyBox({
           placeholder="Reply"
           onChange={(e) => setReply(threadId, e.target.value)}
           onBlur={() => text.trim() === "" && setReply(threadId, null)}
-          style={showToggle && effectiveMode === "preview" ? { display: "none" } : undefined}
+          style={preview && mode === "preview" ? { display: "none" } : undefined}
         />
-        {showToggle && effectiveMode === "preview" && (
+        {preview && mode === "preview" && (
           <div className="preview">
             {text.trim() !== "" ? (
               <Markdown text={text} fileLang={fileLang} replaces={replaces} />

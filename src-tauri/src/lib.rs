@@ -98,8 +98,11 @@ async fn refresh(state: State<'_, AppState>) -> Result<Manifest, String> {
             github::fetch_discussion(&key.owner, &key.repo, key.number),
         )?;
         let mut manifest = state.manifest.lock().unwrap();
-        let commit_numbers: HashMap<&str, usize> =
-            manifest.commits.iter().map(|c| (c.oid.as_str(), c.n)).collect();
+        let commit_numbers: HashMap<&str, usize> = manifest
+            .commits
+            .iter()
+            .map(|c| (c.oid.as_str(), c.n))
+            .collect();
         manifest.threads = Some(build_threads(raw_threads, conversation, &commit_numbers));
         manifest.pr = Some(info.meta);
         info!(

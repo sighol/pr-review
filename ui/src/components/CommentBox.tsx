@@ -1,24 +1,23 @@
-import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { suggestionBlock, textToLines, type LineRange } from "../lib/diff";
 import { langFor } from "../lib/highlight";
 import { insertBlock } from "../lib/suggest";
 import { useStore, type Draft } from "../store";
 import { Markdown } from "./Markdown";
 
-export type BoxMode = "write" | "preview";
-
 interface Props {
   draft: Draft;
-  /** Shared write/preview mode for every draft box on the Review tab; omit to always show the textarea (DiffView). */
-  mode?: BoxMode;
-  onModeChange?: (mode: BoxMode) => void;
+  /** Show the write/preview toggle (Review tab only); DiffView always just shows the textarea. */
+  preview?: boolean;
+  /** Bumped by "Preview all" on the Review tab to switch this box to preview mode. */
+  previewAllTick?: number;
 }
 
 export function describeRange({ side, start, end }: LineRange) {
   return start === end ? `${side} line ${start}` : `${side} lines ${start}–${end}`;
 }
 
-export function CommentBox({ draft, mode, onModeChange }: Props) {
+export function CommentBox({ draft, preview = false, previewAllTick }: Props) {
   const { focus, patchDraft, removeDraft, fileByName } = useStore();
   const file = fileByName.get(draft.file);
   const focusTick = focus?.key === draft.key ? focus.tick : 0;
@@ -26,8 +25,15 @@ export function CommentBox({ draft, mode, onModeChange }: Props) {
   const pendingCaret = useRef<number | null>(null);
   const newLines = useMemo(() => textToLines(file?.newText ?? ""), [file?.newText]);
   const canSuggest = draft.range.side === "new";
-  const showToggle = mode !== undefined;
-  const effectiveMode = mode ?? "write";
+  const [mode, setMode] = useState<"write" | "preview">("write");
+  const lastPreviewAllTick = useRef(previewAllTick);
+
+  useEffect(() => {
+    if (previewAllTick !== undefined && previewAllTick !== lastPreviewAllTick.current) {
+      lastPreviewAllTick.current = previewAllTick;
+      setMode("preview");
+    }
+  }, [previewAllTick]);
 
   useLayoutEffect(() => {
     const el = ref.current;
@@ -44,7 +50,7 @@ export function CommentBox({ draft, mode, onModeChange }: Props) {
   useEffect(() => {
     const el = ref.current;
     if (!el || focusTick === 0) return;
-    onModeChange?.("write");
+    setMode("write");
     el.focus();
     el.setSelectionRange(el.value.length, el.value.length);
   }, [focusTick]);
@@ -54,7 +60,7 @@ export function CommentBox({ draft, mode, onModeChange }: Props) {
     const caret = el ? el.selectionStart : draft.text.length;
     const next = insertBlock(draft.text, caret, suggestionBlock(draft.range, newLines));
     pendingCaret.current = next.caret;
-    onModeChange?.("write");
+    setMode("write");
     patchDraft(draft.key, next.text);
   };
 
@@ -78,18 +84,12 @@ export function CommentBox({ draft, mode, onModeChange }: Props) {
           </button>
         </span>
       </div>
-      {showToggle && (
+      {preview && (
         <div className="mode-toggle">
-          <button
-            className={`mode-tab${effectiveMode === "write" ? " active" : ""}`}
-            onClick={() => onModeChange?.("write")}
-          >
+          <button className={`mode-tab${mode === "write" ? " active" : ""}`} onClick={() => setMode("write")}>
             Write
           </button>
-          <button
-            className={`mode-tab${effectiveMode === "preview" ? " active" : ""}`}
-            onClick={() => onModeChange?.("preview")}
-          >
+          <button className={`mode-tab${mode === "preview" ? " active" : ""}`} onClick={() => setMode("preview")}>
             Preview
           </button>
         </div>
@@ -102,9 +102,9 @@ export function CommentBox({ draft, mode, onModeChange }: Props) {
         onBlur={() => {
           if (draft.text.trim() === "") removeDraft(draft.key);
         }}
-        style={showToggle && effectiveMode === "preview" ? { display: "none" } : undefined}
+        style={preview && mode === "preview" ? { display: "none" } : undefined}
       />
-      {showToggle && effectiveMode === "preview" && (
+      {preview && mode === "preview" && (
         <div className="preview">
           {draft.text.trim() !== "" ? (
             <Markdown
