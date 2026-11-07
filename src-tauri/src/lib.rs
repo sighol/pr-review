@@ -210,10 +210,58 @@ async fn set_review_body(state: State<'_, AppState>, body: String) -> Result<(),
     logged("set_review_body", state.db.set_review_body(&body)).await
 }
 
-/// WebKitGTK takes its pixel ratio from GTK's `gtk-xft-dpi`, whose default is -1. When the desktop
-/// has not supplied it yet (it can arrive late, or never, outside a full desktop session) the page
-/// gets a negative devicePixelRatio and a nonsense viewport: tiny text and an empty window. This
-/// must run before the webview is created, so it sets 96 dpi when the value is not positive.
+/// Logs what decides how the webview is sized and scaled, to diagnose the occasional window
+/// where the page gets a negative pixel ratio (see "Logging and diagnosing" in CLAUDE.md).
+#[cfg(target_os = "linux")]
+fn log_display_environment() {
+    use gtk::prelude::*;
+
+    for key in [
+        "XDG_SESSION_TYPE",
+        "XDG_CURRENT_DESKTOP",
+        "WAYLAND_DISPLAY",
+        "DISPLAY",
+        "GDK_BACKEND",
+        "GDK_SCALE",
+        "GDK_DPI_SCALE",
+        "GTK_USE_PORTAL",
+        "WEBKIT_DISABLE_COMPOSITING_MODE",
+        "WEBKIT_DISABLE_DMABUF_RENDERER",
+    ] {
+        info!(
+            "env {key}={}",
+            std::env::var(key).unwrap_or_else(|_| "<unset>".into())
+        );
+    }
+    let data_dirs = std::env::var("XDG_DATA_DIRS").unwrap_or_default();
+    info!(
+        "XDG_DATA_DIRS has {} entries",
+        data_dirs.split(':').filter(|d| !d.is_empty()).count()
+    );
+
+    if let Some(screen) = gtk::gdk::Screen::default() {
+        info!("GDK screen resolution: {}", screen.resolution());
+    }
+    if let Some(display) = gtk::gdk::Display::default() {
+        for i in 0..display.n_monitors() {
+            if let Some(monitor) = display.monitor(i) {
+                let g = monitor.geometry();
+                info!(
+                    "monitor {i}: {}x{} at scale factor {}",
+                    g.width(),
+                    g.height(),
+                    monitor.scale_factor()
+                );
+            }
+        }
+    }
+}
+
+/// WebKitGTK derives the page's devicePixelRatio from GDK's screen resolution, which is -1 until
+/// something sets it. On KDE/Wayland it was observed to stay -1 while `gtk-xft-dpi` was a fine 96:
+/// the page then got a ratio of -1/96 and a negative window size (tiny text, empty window). So,
+/// before the webview exists, make sure the screen has a positive resolution, taken from
+/// `gtk-xft-dpi` when that is set and 96 otherwise.
 #[cfg(target_os = "linux")]
 fn ensure_gtk_dpi() {
     use gtk::prelude::*;
@@ -222,19 +270,42 @@ fn ensure_gtk_dpi() {
         warn!("could not initialize GTK to check the screen DPI: {e}");
         return;
     }
-    let Some(settings) = gtk::Settings::default() else {
-        warn!("GTK has no default settings; cannot check the screen DPI");
+    log_display_environment();
+
+    let mut xft_dpi = -1;
+    if let Some(settings) = gtk::Settings::default() {
+        xft_dpi = settings.property::<i32>("gtk-xft-dpi");
+        info!(
+            "GTK gtk-xft-dpi: {xft_dpi} ({:.1} dpi)",
+            f64::from(xft_dpi) / 1024.0
+        );
+        if xft_dpi <= 0 {
+            warn!("gtk-xft-dpi is not set; setting it to 96 dpi");
+            settings.set_property("gtk-xft-dpi", 96 * 1024_i32);
+        }
+    } else {
+        warn!("GTK has no default settings");
+    }
+
+    let Some(screen) = gtk::gdk::Screen::default() else {
+        warn!("GDK has no default screen; cannot check the screen resolution");
         return;
     };
-    let xft_dpi = settings.property::<i32>("gtk-xft-dpi");
-    if xft_dpi > 0 {
-        info!("GTK screen DPI: {:.1}", f64::from(xft_dpi) / 1024.0);
-    } else {
-        warn!(
-            "GTK has no screen DPI (gtk-xft-dpi is {xft_dpi}); using 96 so the page is not laid out with a negative pixel ratio"
-        );
-        settings.set_property("gtk-xft-dpi", 96 * 1024_i32);
+    let before = screen.resolution();
+    if before > 0.0 {
+        info!("GDK screen resolution is {before}; leaving it");
+        return;
     }
+    let dpi = if xft_dpi > 0 {
+        f64::from(xft_dpi) / 1024.0
+    } else {
+        96.0
+    };
+    warn!(
+        "GDK screen resolution is {before}; setting it to {dpi} so the page gets a positive pixel ratio"
+    );
+    screen.set_resolution(dpi);
+    info!("GDK screen resolution is now {}", screen.resolution());
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

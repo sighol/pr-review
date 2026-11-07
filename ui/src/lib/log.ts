@@ -60,7 +60,17 @@ export function describeViewport(): string {
   const root = getComputedStyle(document.documentElement);
   const body = getComputedStyle(document.body);
   return (
-    `window ${window.innerWidth}x${window.innerHeight}, devicePixelRatio ${window.devicePixelRatio}, ` +
+    `window ${window.innerWidth}x${window.innerHeight} (outer ${window.outerWidth}x${window.outerHeight}), ` +
+    `screen ${screen.width}x${screen.height}, devicePixelRatio ${window.devicePixelRatio}, ` +
+    `visualViewport scale ${window.visualViewport?.scale}, ` +
     `root font-size ${root.fontSize}, body font ${body.fontSize} ${body.fontFamily}`
   );
+}
+
+/**
+ * The webview sometimes starts with a negative pixel ratio and a negative window size
+ * (seen with WebKitGTK on Wayland); nothing can be laid out then.
+ */
+export function isViewportBroken(pixelRatio: number, width: number, height: number): boolean {
+  return !(pixelRatio > 0 && width > 0 && height > 0);
 }
