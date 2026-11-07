@@ -1,12 +1,19 @@
 import { FileMatrix } from "../components/FileMatrix";
 import { Markdown } from "../components/Markdown";
 import { ThreadBox } from "../components/ThreadBox";
-import { CONVERSATION_ID, isResolved, newCount, sortThreads } from "../lib/threads";
+import { CONVERSATION_ID, isResolved, newCount, sortThreads, type PrStatus } from "../lib/threads";
 import { threadLine, useStore } from "../store";
 
 const excerpt = (s: string) => {
   const flat = s.replace(/\s+/g, " ").trim();
   return flat.length > 90 ? `${flat.slice(0, 90)}…` : flat;
+};
+
+const STATUS_LABEL: Record<PrStatus, string> = {
+  draft: "Draft",
+  open: "Ready for review",
+  merged: "Merged",
+  closed: "Closed",
 };
 
 export function SummaryTab() {
@@ -25,7 +32,8 @@ export function SummaryTab() {
         {pr.title} <span className="pr-number">#{pr.number}</span>
       </h1>
       <p className="muted">
-        opened by <strong>{pr.author}</strong>
+        opened by <strong>{pr.author}</strong> ·{" "}
+        <span className={`pr-state pr-state-${pr.status}`}>{STATUS_LABEL[pr.status]}</span>
       </p>
       <section className="card">
         <Markdown text={pr.body} />

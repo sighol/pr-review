@@ -332,6 +332,26 @@ textarea {
   margin-left: 8px;
   padding: 0 6px;
 }
+.pr-state {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+}
+.pr-state-draft {
+  background: #6e7681;
+}
+.pr-state-open {
+  background: #3fb950;
+}
+.pr-state-merged {
+  background: #8957e5;
+}
+.pr-state-closed {
+  background: #f85149;
+}
 .action {
   color: var(--fg);
   background: var(--bg-subtle);
