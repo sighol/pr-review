@@ -1,5 +1,4 @@
 import { useMemo, useState } from "react";
-import { CopyButton } from "../components/CopyButton";
 import { DiffView } from "../components/DiffView";
 import { DiscussionNav } from "../components/DiscussionNav";
 import { FileTree, type FileStatus } from "../components/FileTree";
@@ -74,7 +73,6 @@ export function DiffTab() {
       <div className="diff-main">
         <div className="toolbar">
           <div className="toolbar-row">
-            <CopyButton text={file.path} title={`Copy the file path (${file.path})`} />
             <DiscussionNav />
             <span className="spacer" />
             <button onClick={() => setWholeFile((w) => !w)}>

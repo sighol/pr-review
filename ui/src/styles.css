@@ -152,6 +152,36 @@ textarea {
   color: var(--fg);
   font-weight: 600;
 }
+.ft-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+}
+.ft-menu {
+  position: fixed;
+  z-index: 11;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  padding: 4px;
+  min-width: 140px;
+}
+.ft-menu button {
+  display: block;
+  width: 100%;
+  background: none;
+  border: 0;
+  color: var(--fg);
+  text-align: left;
+  padding: 6px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.ft-menu button:hover {
+  background: var(--bg);
+}
 .range-banner {
   color: var(--muted);
   font-size: 13px;
@@ -971,9 +1001,6 @@ textarea {
 .markdown a:hover,
 .comment-head a:hover {
   text-decoration: underline;
-}
-.copy-button {
-  margin-left: 6px;
 }
 .nav-group {
   display: flex;
