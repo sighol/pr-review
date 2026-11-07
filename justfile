@@ -23,4 +23,3 @@ install:
     mkdir -p ~/.local/share
     cp -r target/release/bundle/deb/*/data/usr/share/. ~/.local/share/
     -gtk-update-icon-cache -f -t ~/.local/share/icons/hicolor
-    -update-desktop-database ~/.local/share/applications
