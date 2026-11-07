@@ -57,7 +57,10 @@ export interface ThreadAnchor {
 export function threadPlacement(t: ThreadAnchor, range: CommitRange, changedBy: readonly number[]): number | null {
   if (t.side === "old") return range.from === 0 ? (t.line ?? t.originalLine) : null;
   if (t.line !== null && range.to >= Math.max(...changedBy)) return t.line;
-  if (range.to === t.commit) return t.originalLine;
+  // originalLine is valid wherever the file's content matches its commit's, not only at that
+  // exact commit number: a commit 0 means the comment's commit isn't known (force-pushed away),
+  // so there's no content to match against.
+  if (t.commit > 0 && stateOf(changedBy, range.to) === stateOf(changedBy, t.commit)) return t.originalLine;
   return null;
 }
 

@@ -53,21 +53,28 @@ describe("thread placement", () => {
   const current = { side: "new" as const, line: 73, originalLine: 63, commit: 7 };
   const outdated = { side: "new" as const, line: null, originalLine: 96, commit: 7 };
   const oldSide = { side: "old" as const, line: 13, originalLine: 13, commit: 1 };
+  const unknownCommit = { side: "new" as const, line: null, originalLine: 10, commit: 0 };
 
   test("new-side thread: current line when the range ends at the latest version", () => {
     expect(threadPlacement(current, { from: 0, to: 18 }, changedBy)).toBe(73);
     expect(threadPlacement(current, { from: 7, to: 18 }, changedBy)).toBe(73);
   });
 
-  test("new-side thread: original line only when the range ends exactly at its commit", () => {
+  test("new-side thread: original line wherever the range shows the same content as its commit", () => {
     expect(threadPlacement(current, { from: 0, to: 7 }, changedBy)).toBe(63);
-    expect(threadPlacement(current, { from: 0, to: 8 }, changedBy)).toBeNull();
+    // commit 8 doesn't touch the file, so #8 shows the same content as #7: still correct.
+    expect(threadPlacement(current, { from: 0, to: 8 }, changedBy)).toBe(63);
     expect(threadPlacement(current, { from: 0, to: 6 }, changedBy)).toBeNull();
   });
 
-  test("outdated thread only shows at its own commit", () => {
+  test("outdated thread shows wherever the content matches its commit, not just that exact commit", () => {
     expect(threadPlacement(outdated, { from: 0, to: 18 }, changedBy)).toBeNull();
     expect(threadPlacement(outdated, { from: 2, to: 7 }, changedBy)).toBe(96);
+    expect(threadPlacement(outdated, { from: 2, to: 8 }, changedBy)).toBe(96);
+  });
+
+  test("a thread with an unknown commit (force-pushed away) never gets originalLine, even if state 0 matches", () => {
+    expect(threadPlacement(unknownCommit, { from: 0, to: 2 }, changedBy)).toBeNull();
   });
 
   test("old-side thread needs a range starting at the base", () => {

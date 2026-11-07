@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { langFor } from "../lib/highlight";
-import { asOfRange, rangeLabel, sameRange } from "../lib/range";
+import { asOfRange, rangeLabel } from "../lib/range";
 import { firstNewIndex, isResolved, newCount, replacedLines, type FakeThread } from "../lib/threads";
 import { fullDateTime } from "../lib/time";
 import { useStore } from "../store";
@@ -32,10 +32,8 @@ export function ThreadBox({ thread, expanded = false, preview = false, previewAl
   );
   const range = file ? rangeFor(file) : null;
   const asOf = asOfRange(thread);
-  // Only offer the older view when the comment was made on an earlier version of the file,
-  // and only when clicking would actually change the diff.
-  const showAsOf =
-    !!file && !!range && thread.commit > 0 && thread.commit < Math.max(...file.changedBy) && !sameRange(range, asOf);
+  // The comment's commit link only matters when it differs from what the range is currently showing.
+  const showCommitLink = !!file && !!range && thread.commit > 0 && thread.commit !== range.to;
 
   useEffect(() => {
     setCollapsed(resolved && !expanded);
@@ -60,15 +58,6 @@ export function ThreadBox({ thread, expanded = false, preview = false, previewAl
           GitHub: {thread.githubResolved ? "resolved" : "unresolved"}
         </span>
         <span className="spacer" />
-        {showAsOf && (
-          <button
-            className="action small"
-            title={`Show the diff as the reviewer saw it: ${rangeLabel(asOf)}`}
-            onClick={() => viewAsOf(thread)}
-          >
-            View {rangeLabel(asOf)}
-          </button>
-        )}
         {resolved && !expanded && (
           <button className="action" onClick={() => setCollapsed(true)}>
             Hide
@@ -102,6 +91,18 @@ export function ThreadBox({ thread, expanded = false, preview = false, previewAl
                     </ExternalLink>
                   ) : (
                     c.when
+                  )}
+                  {i === 0 && showCommitLink && (
+                    <>
+                      {" · "}
+                      <button
+                        className="link"
+                        title={`Show the diff as the reviewer saw it: ${rangeLabel(asOf)}`}
+                        onClick={() => viewAsOf(thread)}
+                      >
+                        #{thread.commit}
+                      </button>
+                    </>
                   )}
                   {isNew && <span className="badge-new inline">NEW</span>}
                 </span>
