@@ -39,6 +39,13 @@ export async function loadManifest(): Promise<Manifest> {
   return manifest;
 }
 
+/** Re-fetches the PR's status and discussion (not its commits/files) from GitHub. Resolves to null in a browser. */
+export async function refreshManifest(): Promise<Manifest | null> {
+  if (!inTauri()) return null;
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<Manifest>("refresh");
+}
+
 /** The file's content at a state (see `stateOf` in range.ts). */
 export function fileText(file: FileKey, state: number): Promise<string> {
   return cached(`text:${file.path}:${state}`, async () => {

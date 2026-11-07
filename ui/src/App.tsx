@@ -70,7 +70,8 @@ function Panel({ id, children }: { id: Tab; children: ReactNode }) {
 }
 
 function Header() {
-  const { tab, setTab, currentFile, threads, resolutions, pr } = useStore();
+  const { tab, setTab, currentFile, threads, resolutions, pr, refreshDiscussion, refreshing, refreshError } =
+    useStore();
   const payload = useReviewPayload();
   const pending = payload.comments.length + payload.replies.length;
   const withNew = threads.filter((t) => {
@@ -106,8 +107,9 @@ function Header() {
           </a>
         ))}
       </nav>
-      <button className="action primary finish" onClick={() => setTab("review")}>
-        Finish review{pending > 0 ? ` · ${pending}` : ""}
+      {refreshError && <span className="refresh-error">{refreshError}</span>}
+      <button className="action" onClick={refreshDiscussion} disabled={refreshing} title="Re-fetch PR status and discussion from GitHub">
+        {refreshing ? "Refreshing…" : "Refresh"}
       </button>
     </header>
   );

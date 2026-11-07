@@ -14,6 +14,7 @@ import {
 import { parseLine, parseRoute, routeUrl, type Route, type Tab } from "./lib/route";
 import {
   persist,
+  refreshManifest,
   submitReview as sendReview,
   type ReviewEvent,
   type SavedState,
@@ -82,6 +83,10 @@ interface Store {
   commits: Commit[];
   threads: FakeThread[];
   pr: PrInfo;
+  /** Re-fetches the PR's status and discussion from GitHub. No-op in a browser. */
+  refreshDiscussion: () => Promise<void>;
+  refreshing: boolean;
+  refreshError: string | null;
 
   /** File path -> approved commit numbers. */
   approvals: ReadonlyMap<string, ReadonlySet<number>>;
@@ -169,7 +174,7 @@ export function StoreProvider({
   files,
   commits,
   threads: initialThreads,
-  pr,
+  pr: initialPr,
   saved,
   children,
 }: {
@@ -184,6 +189,25 @@ export function StoreProvider({
   const headN = commits.length;
   // Threads are replaced after submitting a review; callbacks that never re-run read the ref.
   const [threads, setThreads] = useState(initialThreads);
+  const [pr, setPr] = useState(initialPr);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const refreshDiscussion = useCallback(async () => {
+    setRefreshing(true);
+    setRefreshError(null);
+    try {
+      const manifest = await refreshManifest();
+      if (manifest?.pr) setPr(manifest.pr);
+      if (manifest?.threads) {
+        const now = Date.now();
+        setThreads(manifest.threads.map((t) => threadFromJson(t, now)));
+      }
+    } catch (e) {
+      setRefreshError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
   const threadsRef = useRef(threads);
   threadsRef.current = threads;
   const fileNames = useMemo(() => new Set(files.map((f) => f.name)), [files]);
@@ -502,6 +526,9 @@ export function StoreProvider({
       commits,
       threads,
       pr,
+      refreshDiscussion,
+      refreshing,
+      refreshError,
       approvals,
       approveFile,
       unapproveFile,
@@ -540,6 +567,9 @@ export function StoreProvider({
       commits,
       threads,
       pr,
+      refreshDiscussion,
+      refreshing,
+      refreshError,
       approvals,
       approveFile,
       unapproveFile,
