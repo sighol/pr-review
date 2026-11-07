@@ -3010,6 +3010,7 @@ dependencies = [
  "anyhow",
  "clap",
  "gtk",
+ "libc",
  "pr-review-core",
  "tauri",
  "tauri-build",

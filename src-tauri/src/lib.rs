@@ -1,7 +1,9 @@
+mod launch;
+
 use std::collections::HashMap;
 use std::future::Future;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
 use clap::Parser;
@@ -13,13 +15,15 @@ use pr_review_core::threads::build_threads;
 use pr_review_core::{git, github, pr, review};
 use tauri::{Manager, State};
 use tracing::{debug, info, warn};
-use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::time::uptime;
+use tracing_subscriber::prelude::*;
+use tracing_subscriber::{EnvFilter, Registry, reload};
 
 /// Review a GitHub pull request side-by-side. Needs `git` and an authenticated `gh`.
 ///
-/// Logs go to stderr. PR_REVIEW_LOG=debug shows every git/gh call and command; PR_REVIEW_LOG
-/// also accepts full tracing filters.
+/// By default the window opens in the background and the terminal is free again once it is up;
+/// progress and errors from starting up are still shown. Logs are off after that. PR_REVIEW_LOG
+/// accepts a level or a full tracing filter and overrides --debug.
 #[derive(Parser)]
 #[command(name = "pr-review")]
 struct Args {
@@ -30,6 +34,20 @@ struct Args {
     /// Repository to review, defaults to the current directory (like git's -C)
     #[arg(short = 'C', long = "repository", value_name = "PATH")]
     repository: Option<PathBuf>,
+
+    /// Stay in the foreground until the window is closed
+    #[arg(long)]
+    wait: bool,
+
+    /// Log everything, including every git and gh call, to stderr (implies --wait)
+    #[arg(long)]
+    debug: bool,
+}
+
+impl Args {
+    fn foreground(&self) -> bool {
+        self.wait || self.debug
+    }
 }
 
 fn parse_pr_number(s: &str) -> Result<u64, String> {
@@ -44,25 +62,89 @@ struct AppState {
     db: Db,
 }
 
-/// Sets up logging to stderr. `PR_REVIEW_LOG` is either a level (`debug` turns on debug for this
-/// app's own crates and the frontend, leaving dependencies quiet) or a full tracing filter.
-fn init_logging() {
-    let spec = std::env::var("PR_REVIEW_LOG").unwrap_or_else(|_| "info".to_string());
-    let directives = match spec.as_str() {
+const STARTUP_FILTER: &str = "warn,pr_review_core=info,pr_review_lib=info,frontend=info";
+
+/// Set when logging is only on for starting up; see `init_logging`.
+static STARTUP_ONLY: OnceLock<reload::Handle<EnvFilter, Registry>> = OnceLock::new();
+
+/// The tracing filter for a level (`debug` turns on debug for this app's own crates and the
+/// frontend, leaving dependencies quiet) or a full filter.
+fn filter_for(spec: &str) -> String {
+    match spec {
         "error" | "warn" | "info" | "debug" | "trace" => {
             format!("warn,pr_review_core={spec},pr_review_lib={spec},frontend={spec}")
         }
         custom => custom.to_string(),
-    };
+    }
+}
+
+/// Sets up logging to stderr. With `PR_REVIEW_LOG` (a level or a full tracing filter) or
+/// `--debug` logging is on as asked. Otherwise it is on only while starting up, so the terminal
+/// shows what is happening, and `logs_off_after_startup` turns it off once the window is up.
+fn init_logging(debug: bool) {
+    let asked = std::env::var("PR_REVIEW_LOG")
+        .ok()
+        .or_else(|| debug.then(|| "debug".to_string()));
+    let directives = asked
+        .as_deref()
+        .map_or_else(|| STARTUP_FILTER.to_string(), filter_for);
     let filter = EnvFilter::try_new(&directives).unwrap_or_else(|e| {
-        eprintln!("ignoring invalid PR_REVIEW_LOG '{spec}': {e}");
-        EnvFilter::new("warn,pr_review_core=info,pr_review_lib=info,frontend=info")
+        eprintln!("ignoring invalid PR_REVIEW_LOG '{directives}': {e}");
+        EnvFilter::new(STARTUP_FILTER)
     });
-    tracing_subscriber::fmt()
-        .with_env_filter(filter)
-        .with_writer(std::io::stderr)
-        .with_timer(uptime())
+    let (filter, handle) = reload::Layer::new(filter);
+    tracing_subscriber::registry()
+        .with(filter)
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_writer(std::io::stderr)
+                .with_timer(uptime()),
+        )
         .init();
+    if asked.is_none() {
+        let _ = STARTUP_ONLY.set(handle);
+    }
+}
+
+/// Turns logging off unless it was asked for with `--debug` or `PR_REVIEW_LOG`.
+fn logs_off_after_startup() {
+    if let Some(handle) = STARTUP_ONLY.get()
+        && let Err(e) = handle.reload(EnvFilter::new("off"))
+    {
+        eprintln!("could not turn logging off: {e}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn foreground(args: &[&str]) -> bool {
+        Args::try_parse_from(std::iter::once("pr-review").chain(args.iter().copied()))
+            .unwrap()
+            .foreground()
+    }
+
+    #[test]
+    fn runs_in_the_background_unless_asked_to_wait() {
+        assert!(!foreground(&["13486"]));
+        assert!(foreground(&["--wait", "13486"]));
+        assert!(foreground(&["13486", "--wait"]));
+    }
+
+    #[test]
+    fn debug_implies_wait() {
+        assert!(foreground(&["--debug", "13486"]));
+    }
+
+    #[test]
+    fn filters_for_levels_and_custom_specs() {
+        assert_eq!(
+            filter_for("debug"),
+            "warn,pr_review_core=debug,pr_review_lib=debug,frontend=debug"
+        );
+        assert_eq!(filter_for("pr_review_core=trace"), "pr_review_core=trace");
+    }
 }
 
 /// Runs a command's work and logs how it went, so failures always reach the terminal.
@@ -359,9 +441,12 @@ fn ensure_gtk_dpi() {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    init_logging();
-    let started = Instant::now();
     let args = Args::parse();
+    if !args.foreground() && !launch::is_background_copy() {
+        launch::start_in_background();
+    }
+    init_logging(args.debug);
+    let started = Instant::now();
     let number = args.number;
     let cwd = match args.repository {
         Some(repository) => repository,
@@ -411,6 +496,8 @@ pub fn run() {
                     warn!("could not set the window title: {e}");
                 }
             }
+            launch::window_is_up();
+            logs_off_after_startup();
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
