@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { CopyButton } from "../components/CopyButton";
 import { DiffView } from "../components/DiffView";
 import { DiscussionNav } from "../components/DiscussionNav";
 import { RangeBar } from "../components/RangeBar";
@@ -65,6 +66,7 @@ export function DiffTab() {
               </option>
             ))}
           </select>
+          <CopyButton text={file.path} title={`Copy the file path (${file.path})`} />
           <DiscussionNav />
           <span className="spacer" />
           <button onClick={() => setWholeFile((w) => !w)}>{wholeFile ? "Show changed hunks" : "Show whole file"}</button>

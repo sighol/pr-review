@@ -25,6 +25,7 @@ bun run fixtures   # regenerate public/pr from git history
 
 cargo test -p pr-review-core    # backend tests, no webkit needed
 just                            # cargo test, then typecheck, then bun test (run from the repo root)
+just install                    # release build via Tauri's bundler; binary -> ~/.cargo/bin, .desktop + icons -> ~/.local/share
 
 # The real app: pr-review <PR number>, run from inside a clone of the GitHub repo.
 # Needs `git` and an authenticated `gh`. Under `cargo tauri dev` the app's working
@@ -39,6 +40,10 @@ cargo tauri dev -- -- 13486
 Thread mapping (`backend/src/threads.rs`): `originalCommit` becomes a commit number; **0 means the commit is not in the PR** (force-push/rebase). A thread with commit 0 that is also outdated on the new side is `placeable() === false` (`lib/range.ts`): it is listed on Summary/Review but never placed in a diff, has no "View base..#c" button, and is left out of the "not shown in this range" strip. Multi-line threads are placed under their end line (the range is not highlighted in the diff), but `startLine` is carried (`Thread.start_line`, `FakeThread.startLine`, null for a single line or an outdated thread) because a suggestion replaces the whole range: `replacedLines()` in `lib/threads.ts` gives the lines `startLine..=line` of the head text for the suggestion diff. GitHub comments in your own unsubmitted (PENDING) review are dropped. Conversation comments become one thread with id `conversation` (omitted when empty).
 
 Routes: `/` summary (default), `/diff?file=<path>[&thread=<id> | &line=<side>:<n>]`, `/review`. Browser back/forward work (History API, no router library). The selected commit range is **not** in the URL yet.
+
+## Installing and the window icon
+
+`bundle.active` is on with `targets: ["deb"]`, so `cargo tauri build --bundles deb` produces Tauri's `.deb` staging tree (`target/release/bundle/deb/*/data/usr`) with the `.desktop` file and the icons in `hicolor`; `just install` copies the binary to `~/.cargo/bin` and `share/` to `~/.local/share` (the `.deb` itself is not usable on NixOS). On Wayland a window's icon comes from the `.desktop` file matching its app id, not from the icon the app sets, so `src-tauri/pr-review.desktop` (a custom template, `bundle.linux.deb.desktopTemplate`) adds `StartupWMClass=com.cognite.pr-review`, the `identifier`, which Tauri/tao pass to GTK as the app id. If the icon is still wrong after installing, the app id the compositor sees is probably different (check with e.g. `niri msg windows`, `hyprctl clients` or looking-glass in GNOME) and `StartupWMClass` must match it. Launching the desktop entry itself without a PR number just prints the usage message.
 
 ## Logging and diagnosing
 
