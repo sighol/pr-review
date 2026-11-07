@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { openInEditor } from "../lib/backend";
 import { copyText } from "../lib/clipboard";
 import { buildFileTree, type TreeNode } from "../lib/filetree";
+import { describeError, log } from "../lib/log";
 
 export interface FileStatus {
   approved: boolean;
@@ -97,6 +99,14 @@ export function FileTree({
               }}
             >
               Copy path
+            </button>
+            <button
+              onClick={() => {
+                openInEditor(menu.path).catch((e) => log("warn", `could not open ${menu.path} in the editor: ${describeError(e)}`));
+                setMenu(null);
+              }}
+            >
+              Open in editor
             </button>
           </div>
         </>

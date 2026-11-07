@@ -46,6 +46,13 @@ export async function refreshManifest(): Promise<Manifest | null> {
   return invoke<Manifest>("refresh");
 }
 
+/** Opens the file in $PR_REVIEW_EDITOR (or `code`). No-op in a browser. */
+export async function openInEditor(path: string): Promise<void> {
+  if (!inTauri()) return;
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("open_in_editor", { path });
+}
+
 /** The file's content at a state (see `stateOf` in range.ts). */
 export function fileText(file: FileKey, state: number): Promise<string> {
   return cached(`text:${file.path}:${state}`, async () => {
