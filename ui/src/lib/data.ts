@@ -15,6 +15,7 @@ export interface RangeData {
 
 interface FileRef {
   path: string;
+  oldPath?: string;
   dir: string;
   changedBy: readonly number[];
 }

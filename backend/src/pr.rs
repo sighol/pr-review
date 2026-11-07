@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -7,7 +6,6 @@ use tracing::info;
 
 use crate::db::PrKey;
 use crate::manifest::{Manifest, build_manifest};
-use crate::threads::build_threads;
 use crate::{git, github};
 
 pub struct OpenedPr {
@@ -49,12 +47,7 @@ pub async fn open_pr(cwd: &Path, number: u64) -> Result<OpenedPr> {
 
     info!("reading commits and diffs");
     let mut manifest = build_manifest(&repo, &range.base, &range.head).await?;
-    let commit_numbers: HashMap<&str, usize> = manifest
-        .commits
-        .iter()
-        .map(|c| (c.oid.as_str(), c.n))
-        .collect();
-    manifest.threads = Some(build_threads(raw_threads, conversation, &commit_numbers));
+    manifest.set_threads(raw_threads, conversation);
     manifest.pr = Some(info.meta);
     info!(
         "PR #{number} ready: {} commits, {} files, {} threads in {:?}",

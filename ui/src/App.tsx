@@ -32,6 +32,7 @@ export async function loadAll(): Promise<Loaded> {
       async (f): Promise<FileData> => ({
         name: f.path,
         path: f.path,
+        oldPath: f.oldPath,
         dir: f.dir,
         added: f.added,
         removed: f.removed,

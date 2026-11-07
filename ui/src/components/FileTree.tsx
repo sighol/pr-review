@@ -22,12 +22,15 @@ export function FileTree({
   currentFile,
   onSelect,
   statusFor,
+  renamedFrom,
   width,
 }: {
   paths: readonly string[];
   currentFile: string;
   onSelect: (path: string) => void;
   statusFor: (path: string) => FileStatus;
+  /** Renamed files: path -> the path at the PR base. They get a bold R. */
+  renamedFrom: ReadonlyMap<string, string>;
   width: number;
 }) {
   const tree = useMemo(() => buildFileTree(paths), [paths]);
@@ -64,6 +67,11 @@ export function FileTree({
           }}
         >
           <span className={`status-dot ${s.approved ? "approved" : "unapproved"}`} />
+          {renamedFrom.has(node.path) && (
+            <span className="ft-renamed" title={`Renamed from ${renamedFrom.get(node.path)}`}>
+              R
+            </span>
+          )}
           <span className="ft-name">{node.name}</span>
           {s.total > 0 && (
             <span className={`ft-count${s.resolved < s.total ? " attention" : ""}`}>

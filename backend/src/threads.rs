@@ -50,6 +50,16 @@ fn comment(c: RawComment) -> Comment {
     }
 }
 
+/// Moves threads written on a file's old name to its new name. `renames` maps a path at the PR
+/// base to the same file's path at the head (see `Manifest::renames`).
+pub fn follow_renames(threads: &mut [Thread], renames: &HashMap<&str, &str>) {
+    for t in threads {
+        if let Some(new) = t.file.as_deref().and_then(|f| renames.get(f)) {
+            t.file = Some(new.to_string());
+        }
+    }
+}
+
 /// `commit_numbers` maps a commit oid to its 1-based number in the PR.
 pub fn build_threads(
     raw: Vec<RawThread>,
@@ -232,6 +242,19 @@ mod tests {
             (t[0].id.as_str(), t[0].file.as_deref(), t[0].comments.len()),
             ("conversation", None, 2)
         );
+    }
+
+    #[test]
+    fn threads_on_an_old_name_follow_the_rename() {
+        let mut t = build_threads(
+            vec![raw_thread("t", "RIGHT", Some(1), false, None)],
+            vec![raw_comment("IC_1", None)],
+            &HashMap::new(),
+        );
+        let old = t[0].file.clone().unwrap();
+        follow_renames(&mut t, &HashMap::from([(old.as_str(), "new/name.rs")]));
+        assert_eq!(t[0].file.as_deref(), Some("new/name.rs"));
+        assert_eq!(t[1].file, None, "the conversation has no file");
     }
 
     #[test]

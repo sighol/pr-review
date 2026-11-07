@@ -1,6 +1,5 @@
 mod launch;
 
-use std::collections::HashMap;
 use std::future::Future;
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
@@ -11,7 +10,6 @@ use pr_review_core::db::{Db, Draft, SavedState};
 use pr_review_core::directives::Directives;
 use pr_review_core::manifest::Manifest;
 use pr_review_core::review::{ReviewInput, SubmitResult};
-use pr_review_core::threads::build_threads;
 use pr_review_core::{git, github, pr, review};
 use tauri::{Manager, State};
 use tracing::{debug, info, warn};
@@ -197,12 +195,7 @@ async fn refresh(state: State<'_, AppState>, window: tauri::Window) -> Result<Ma
             github::fetch_discussion(&key.owner, &key.repo, key.number),
         )?;
         let mut manifest = state.manifest.lock().unwrap();
-        let commit_numbers: HashMap<&str, usize> = manifest
-            .commits
-            .iter()
-            .map(|c| (c.oid.as_str(), c.n))
-            .collect();
-        manifest.threads = Some(build_threads(raw_threads, conversation, &commit_numbers));
+        manifest.set_threads(raw_threads, conversation);
         manifest.pr = Some(info.meta);
         info!(
             "refreshed PR #{}: {} threads",
@@ -238,10 +231,11 @@ async fn file_text(
     state: State<'_, AppState>,
     oid: String,
     path: String,
+    old_path: Option<String>,
 ) -> Result<String, String> {
     logged(
         &format!("file_text {path}"),
-        git::file_text(&state.repo, &oid, &path),
+        git::file_text(&state.repo, &oid, &path, old_path.as_deref()),
     )
     .await
 }
@@ -252,10 +246,11 @@ async fn file_diff(
     from_oid: String,
     to_oid: String,
     path: String,
+    old_path: Option<String>,
 ) -> Result<String, String> {
     logged(
         &format!("file_diff {path}"),
-        git::file_diff(&state.repo, &from_oid, &to_oid, &path),
+        git::file_diff(&state.repo, &from_oid, &to_oid, &path, old_path.as_deref()),
     )
     .await
 }
@@ -304,18 +299,13 @@ async fn submit_review(
     directives: Directives,
 ) -> Result<SubmitResult, String> {
     info!("submitting the review ({event})");
-    let (base, head, commits) = {
-        let m = state.manifest.lock().unwrap();
-        (m.base.clone(), m.head.clone(), m.commits.clone())
-    };
+    let manifest = state.manifest.lock().unwrap().clone();
     let result = logged(
         "submit_review",
         review::submit_saved(
             &state.db,
             &state.repo,
-            &base,
-            &head,
-            &commits,
+            &manifest,
             ReviewInput {
                 event: event.clone(),
                 body,

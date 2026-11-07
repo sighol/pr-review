@@ -153,6 +153,11 @@ textarea {
 .ft-file .status-dot {
   margin-left: 2px;
 }
+.ft-renamed {
+  flex: none;
+  font-weight: 700;
+  color: #79c0ff;
+}
 .ft-name {
   flex: 1;
   overflow: hidden;

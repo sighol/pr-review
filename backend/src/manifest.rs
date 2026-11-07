@@ -6,8 +6,8 @@ use serde::Serialize;
 use tracing::warn;
 
 use crate::git;
-use crate::github::PrMeta;
-use crate::threads::Thread;
+use crate::github::{PrMeta, RawComment, RawThread};
+use crate::threads::{Thread, build_threads, follow_renames};
 
 /// Same JSON shape as `ui/scripts/make-fixtures.py` writes to `public/pr/manifest.json`,
 /// plus `pr` when a real PR was opened.
@@ -24,6 +24,33 @@ pub struct Manifest {
     pub files: Vec<ManifestFile>,
 }
 
+impl Manifest {
+    /// Maps a commit oid to its 1-based number in the PR.
+    pub fn commit_numbers(&self) -> HashMap<&str, usize> {
+        self.commits.iter().map(|c| (c.oid.as_str(), c.n)).collect()
+    }
+
+    /// Maps the path of each renamed file at the PR base to its path at the head.
+    pub fn renames(&self) -> HashMap<&str, &str> {
+        self.files
+            .iter()
+            .filter_map(|f| Some((f.old_path.as_deref()?, f.path.as_str())))
+            .collect()
+    }
+
+    /// The review threads and the conversation from GitHub's raw data, mapped onto this PR's
+    /// commit numbers and file names.
+    pub fn threads_from(&self, raw: Vec<RawThread>, conversation: Vec<RawComment>) -> Vec<Thread> {
+        let mut threads = build_threads(raw, conversation, &self.commit_numbers());
+        follow_renames(&mut threads, &self.renames());
+        threads
+    }
+
+    pub fn set_threads(&mut self, raw: Vec<RawThread>, conversation: Vec<RawComment>) {
+        self.threads = Some(self.threads_from(raw, conversation));
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ManifestCommit {
     /// 1-based position in the PR; state 0 of a file is the PR base.
@@ -37,6 +64,9 @@ pub struct ManifestCommit {
 #[serde(rename_all = "camelCase")]
 pub struct ManifestFile {
     pub path: String,
+    /// The file's path at the PR base, when git detected a rename.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub old_path: Option<String>,
     pub dir: String,
     pub added: usize,
     pub removed: usize,
@@ -60,8 +90,15 @@ pub async fn build_manifest(repo: &Path, base_rev: &str, head_rev: &str) -> Resu
     let last_commit = commits.len();
     let files = stats
         .into_iter()
-        .map(|(path, (added, removed))| {
+        .map(|(path, stat)| {
             let mut touched_by = changed_by.remove(&path).unwrap_or_default();
+            // A renamed file was touched under both names (each commit's own diff does not
+            // follow renames), so its history is the union.
+            if let Some(old) = &stat.old_path {
+                touched_by.extend(changed_by.remove(old).unwrap_or_default());
+                touched_by.sort_unstable();
+                touched_by.dedup();
+            }
             if touched_by.is_empty() {
                 // The file differs between base and head, but no single commit's own diff shows it
                 // (a merge commit that resolved a conflict, for instance). Attribute it to the last
@@ -73,8 +110,9 @@ pub async fn build_manifest(repo: &Path, base_rev: &str, head_rev: &str) -> Resu
                 dir: path.replace('/', "__"),
                 changed_by: touched_by,
                 path,
-                added,
-                removed,
+                old_path: stat.old_path,
+                added: stat.added,
+                removed: stat.removed,
             }
         })
         .collect();
@@ -127,6 +165,28 @@ mod tests {
         );
         let evil = m.files.iter().find(|f| f.path == "evil.txt").unwrap();
         assert_eq!(evil.changed_by, vec![m.commits.len()]);
+    }
+
+    #[tokio::test]
+    async fn a_renamed_file_is_one_file_touched_by_its_old_and_new_names_commits() {
+        let repo = TestRepo::new();
+        let text: String = (1..=10).map(|i| format!("line {i}\n")).collect();
+        let base = repo.commit("base", &[("Old.kt", Some(&text)), ("keep.kt", Some("k\n"))]);
+        repo.commit("pure rename", &[("Old.kt", None), ("New.kt", Some(&text))]);
+        repo.commit("touch another file", &[("keep.kt", Some("k2\n"))]);
+        repo.commit(
+            "edit renamed",
+            &[("New.kt", Some(&text.replace("line 3\n", "three\n")))],
+        );
+
+        let m = build_manifest(repo.path(), &base, "HEAD").await.unwrap();
+        let paths: Vec<_> = m.files.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(paths, ["New.kt", "keep.kt"]);
+        let renamed = &m.files[0];
+        assert_eq!(renamed.old_path.as_deref(), Some("Old.kt"));
+        assert_eq!(renamed.changed_by, vec![1, 3]);
+        assert_eq!((renamed.added, renamed.removed), (1, 1));
+        assert_eq!(m.files[1].old_path, None);
     }
 
     #[tokio::test]

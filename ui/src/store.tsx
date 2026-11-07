@@ -37,6 +37,8 @@ export interface FileData {
   /** Same as `path`; the key used in URLs and drafts. */
   name: string;
   path: string;
+  /** The file's path at the PR base, when it was renamed in the PR. */
+  oldPath?: string;
   /** Directory the file's states and diffs are stored under. */
   dir: string;
   added: number;

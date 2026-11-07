@@ -94,6 +94,7 @@ export function DiffTab() {
         currentFile={currentFile}
         onSelect={setCurrentFile}
         statusFor={statusFor}
+        renamedFrom={new Map(files.flatMap((f) => (f.oldPath ? [[f.path, f.oldPath] as const] : [])))}
         width={sidebarWidth}
       />
       <div className="file-tree-resize" onPointerDown={startSidebarResize} />
@@ -106,6 +107,11 @@ export function DiffTab() {
               {wholeFile ? "Show changed hunks" : "Show whole file"}
             </button>
           </div>
+          {file.oldPath && (
+            <div className="toolbar-row">
+              <span className="hint">Renamed from {file.oldPath}</span>
+            </div>
+          )}
           <div className="toolbar-row">
             <RangeBar
               commits={commits}
@@ -127,13 +133,17 @@ export function DiffTab() {
                 <span className="status-dot approved" /> Approved · Unapprove
               </button>
             ) : (
-              <button className="action primary" onClick={() => approveFile(file)}>
+              <button
+                className="action primary"
+                title={next ? `Then open ${next}` : "This is the last unapproved file"}
+                onClick={() => {
+                  approveFile(file);
+                  if (next) setCurrentFile(next);
+                }}
+              >
                 Approve through #{latest}
               </button>
             )}
-            <button className="action" disabled={!next} onClick={() => next && setCurrentFile(next)}>
-              Next unapproved file →
-            </button>
           </div>
         </div>
         {hidden.length > 0 && (

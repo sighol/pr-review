@@ -90,24 +90,42 @@ pub async fn commits_in_range(repo: &Path, base: &str, head: &str) -> Result<Vec
         .collect())
 }
 
-/// Lines added/removed per file between `base` and `head`. Binary files count as 0/0.
-pub async fn numstat(
-    repo: &Path,
-    base: &str,
-    head: &str,
-) -> Result<BTreeMap<String, (usize, usize)>> {
-    let out = git(
-        repo,
-        &["diff", "--numstat", "-z", "--no-renames", base, head],
-    )
-    .await?;
+/// What changed in one file between the PR base and head.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileStat {
+    pub added: usize,
+    pub removed: usize,
+    /// The file's path at the base when git detected it was renamed (the key is the head path).
+    pub old_path: Option<String>,
+}
+
+/// Lines added/removed per file between `base` and `head`, keyed by the head path, with renames
+/// detected by git (`-M`, like GitHub does for the whole PR). Binary files count as 0/0.
+pub async fn numstat(repo: &Path, base: &str, head: &str) -> Result<BTreeMap<String, FileStat>> {
+    let out = git(repo, &["diff", "--numstat", "-z", "-M", base, head]).await?;
     let mut stats = BTreeMap::new();
-    for record in out.split('\0').filter(|r| !r.is_empty()) {
+    // With -z a rename is `added\tremoved\t\0old\0new\0`; anything else is `added\tremoved\tpath\0`.
+    let mut records = out.split('\0').filter(|r| !r.is_empty());
+    while let Some(record) = records.next() {
         let mut parts = record.splitn(3, '\t');
         let added = parts.next().unwrap_or("0").parse().unwrap_or(0);
         let removed = parts.next().unwrap_or("0").parse().unwrap_or(0);
-        let path = parts.next().unwrap_or_default().to_string();
-        stats.insert(path, (added, removed));
+        let path = parts.next().unwrap_or_default();
+        let (path, old_path) = if path.is_empty() {
+            let old = records.next().unwrap_or_default();
+            let new = records.next().unwrap_or_default();
+            (new.to_string(), Some(old.to_string()))
+        } else {
+            (path.to_string(), None)
+        };
+        stats.insert(
+            path,
+            FileStat {
+                added,
+                removed,
+                old_path,
+            },
+        );
     }
     Ok(stats)
 }
@@ -134,8 +152,31 @@ pub async fn files_in_commit(repo: &Path, oid: &str) -> Result<Vec<String>> {
         .collect())
 }
 
-/// The file's content at `oid`; empty if it does not exist there.
-pub async fn file_text(repo: &Path, oid: &str, path: &str) -> Result<String> {
+async fn exists_at(repo: &Path, oid: &str, path: &str) -> bool {
+    match run(repo, &["cat-file", "-e", &format!("{oid}:{path}")]).await {
+        Ok(out) => out.status.success(),
+        Err(_) => false,
+    }
+}
+
+/// The path to read at `oid` for a file whose head path is `path`: `old_path` (its path at the
+/// PR base) when the file was renamed and only exists under the old name at `oid`.
+async fn path_at<'a>(repo: &Path, oid: &str, path: &'a str, old_path: Option<&'a str>) -> &'a str {
+    match old_path {
+        Some(old) if !exists_at(repo, oid, path).await && exists_at(repo, oid, old).await => old,
+        _ => path,
+    }
+}
+
+/// The file's content at `oid`; empty if it does not exist there. For a renamed file pass its
+/// `old_path`, which is read where the new name does not exist yet.
+pub async fn file_text(
+    repo: &Path,
+    oid: &str,
+    path: &str,
+    old_path: Option<&str>,
+) -> Result<String> {
+    let path = path_at(repo, oid, path, old_path).await;
     let out = run(repo, &["show", &format!("{oid}:{path}")]).await?;
     if out.status.success() {
         return Ok(String::from_utf8_lossy(&out.stdout).into_owned());
@@ -147,8 +188,31 @@ pub async fn file_text(repo: &Path, oid: &str, path: &str) -> Result<String> {
     bail!("git show {oid}:{path} failed: {}", stderr.trim());
 }
 
-/// Plain `git diff` of one path between two commits.
-pub async fn file_diff(repo: &Path, from: &str, to: &str, path: &str) -> Result<String> {
+/// `git diff` of one file between two commits. When the file is under a different name at each
+/// end (see `file_text`), the two versions are compared directly, so a rename with edits is one
+/// diff of the old content against the new rather than a deletion plus an addition.
+pub async fn file_diff(
+    repo: &Path,
+    from: &str,
+    to: &str,
+    path: &str,
+    old_path: Option<&str>,
+) -> Result<String> {
+    let from_path = path_at(repo, from, path, old_path).await;
+    let path = path_at(repo, to, path, old_path).await;
+    if from_path != path {
+        return git(
+            repo,
+            &[
+                "diff",
+                "--no-color",
+                "-U3",
+                &format!("{from}:{from_path}"),
+                &format!("{to}:{path}"),
+            ],
+        )
+        .await;
+    }
     git(
         repo,
         &[
@@ -354,8 +418,13 @@ mod tests {
         );
 
         let stats = numstat(repo.path(), &base, &c2).await.unwrap();
-        assert_eq!(stats.get("a.txt"), Some(&(2, 1)));
-        assert_eq!(stats.get("dir/b.txt"), Some(&(1, 0)));
+        let stat = |added, removed| FileStat {
+            added,
+            removed,
+            old_path: None,
+        };
+        assert_eq!(stats.get("a.txt"), Some(&stat(2, 1)));
+        assert_eq!(stats.get("dir/b.txt"), Some(&stat(1, 0)));
 
         assert_eq!(
             files_in_commit(repo.path(), &c1).await.unwrap(),
@@ -396,18 +465,92 @@ mod tests {
         );
 
         assert_eq!(
-            file_text(repo.path(), &base, "a.txt").await.unwrap(),
+            file_text(repo.path(), &base, "a.txt", None).await.unwrap(),
             "1\n2\n"
         );
         assert_eq!(
-            file_text(repo.path(), &c1, "a.txt").await.unwrap(),
+            file_text(repo.path(), &c1, "a.txt", None).await.unwrap(),
             "1\n2\n3\n"
         );
-        assert_eq!(file_text(repo.path(), &base, "new.txt").await.unwrap(), "");
+        assert_eq!(
+            file_text(repo.path(), &base, "new.txt", None)
+                .await
+                .unwrap(),
+            ""
+        );
 
-        let diff = file_diff(repo.path(), &base, &c1, "a.txt").await.unwrap();
+        let diff = file_diff(repo.path(), &base, &c1, "a.txt", None)
+            .await
+            .unwrap();
         assert!(diff.starts_with("diff --git a/a.txt b/a.txt"));
         assert!(diff.contains("\n+3\n"));
+    }
+
+    /// base: old.txt (10 lines). c1 renames it to new.txt and edits one line. c2 edits it again.
+    fn renamed_repo() -> (TestRepo, String, String, String) {
+        let repo = TestRepo::new();
+        let text: String = (1..=10).map(|i| format!("line {i}\n")).collect();
+        let base = repo.commit(
+            "base",
+            &[("old.txt", Some(&text)), ("keep.txt", Some("k\n"))],
+        );
+        let renamed = text.replace("line 5\n", "five\n");
+        let c1 = repo.commit("rename", &[("old.txt", None), ("new.txt", Some(&renamed))]);
+        let c2 = repo.commit(
+            "edit",
+            &[("new.txt", Some(&renamed.replace("line 9\n", "nine\n")))],
+        );
+        (repo, base, c1, c2)
+    }
+
+    #[tokio::test]
+    async fn numstat_detects_a_rename_with_edits() {
+        let (repo, base, _, c2) = renamed_repo();
+        let stats = numstat(repo.path(), &base, &c2).await.unwrap();
+        assert_eq!(stats.keys().collect::<Vec<_>>(), ["new.txt"]);
+        assert_eq!(
+            stats["new.txt"],
+            FileStat {
+                added: 2,
+                removed: 2,
+                old_path: Some("old.txt".into())
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn a_renamed_file_is_read_under_its_old_name_before_the_rename() {
+        let (repo, base, c1, _) = renamed_repo();
+        let r = repo.path();
+        let old = Some("old.txt");
+        let at_base = file_text(r, &base, "new.txt", old).await.unwrap();
+        assert!(at_base.contains("line 5\n"));
+        let at_c1 = file_text(r, &c1, "new.txt", old).await.unwrap();
+        assert!(at_c1.contains("five\n") && !at_c1.contains("line 5\n"));
+        // Without the old name the file does not exist at the base.
+        assert_eq!(file_text(r, &base, "new.txt", None).await.unwrap(), "");
+    }
+
+    #[tokio::test]
+    async fn a_diff_across_a_rename_is_one_diff_of_old_against_new() {
+        let (repo, base, c1, c2) = renamed_repo();
+        let r = repo.path();
+        let old = Some("old.txt");
+
+        let across = file_diff(r, &base, &c2, "new.txt", old).await.unwrap();
+        assert!(across.contains("-line 5\n") && across.contains("+five\n"));
+        assert!(across.contains("-line 9\n") && across.contains("+nine\n"));
+        assert!(
+            !across.contains("-line 1\n"),
+            "the whole file must not show as removed"
+        );
+
+        // Both ends after the rename: a plain diff of the new name.
+        let after = file_diff(r, &c1, &c2, "new.txt", old).await.unwrap();
+        assert!(after.starts_with("diff --git a/new.txt b/new.txt"));
+        assert!(
+            after.contains("+nine\n") && !after.contains("+five\n") && !after.contains("-five\n")
+        );
     }
 
     #[tokio::test]

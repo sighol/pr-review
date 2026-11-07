@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
@@ -6,9 +5,9 @@ use serde::Serialize;
 
 use crate::db::{Db, Draft, SavedState};
 use crate::directives::{Applied, Directives};
-use crate::manifest::ManifestCommit;
+use crate::manifest::Manifest;
 use crate::submit::{Event, Gh, NewComment, Submission, ThreadReply, submit};
-use crate::threads::{CONVERSATION_ID, Thread, build_threads};
+use crate::threads::{CONVERSATION_ID, Thread};
 use crate::{git, github};
 
 /// A draft is stale when the version of its file it was written against (the PR head for the
@@ -143,14 +142,13 @@ pub struct ReviewInput {
 pub async fn submit_saved(
     db: &Db,
     repo: &Path,
-    base: &str,
-    head: &str,
-    commits: &[ManifestCommit],
+    manifest: &Manifest,
     input: ReviewInput,
 ) -> Result<SubmitResult> {
     let event: Event = input.event.parse()?;
-    let saved = load_saved(db, repo, base, head).await?;
-    let submission = build_submission(&saved, event, head, &input.body, input.directives)?;
+    let saved = load_saved(db, repo, &manifest.base, &manifest.head).await?;
+    let submission =
+        build_submission(&saved, event, &manifest.head, &input.body, input.directives)?;
     let key = db.key();
 
     let outcome = submit(&Gh, &key.owner, &key.repo, key.number, &submission).await?;
@@ -162,11 +160,7 @@ pub async fn submit_saved(
 
     let (threads, refresh_error) =
         match github::fetch_discussion(&key.owner, &key.repo, key.number).await {
-            Ok((raw, conversation)) => {
-                let numbers: HashMap<&str, usize> =
-                    commits.iter().map(|c| (c.oid.as_str(), c.n)).collect();
-                (Some(build_threads(raw, conversation, &numbers)), None)
-            }
+            Ok((raw, conversation)) => (Some(manifest.threads_from(raw, conversation)), None),
             Err(e) => (None, Some(format!("{e:#}"))),
         };
 

@@ -9,11 +9,13 @@ export interface Manifest {
   threads?: ThreadJson[];
   base: string;
   commits: Commit[];
-  files: { path: string; dir: string; added: number; removed: number; changedBy: number[] }[];
+  files: { path: string; oldPath?: string; dir: string; added: number; removed: number; changedBy: number[] }[];
 }
 
 export interface FileKey {
   path: string;
+  /** The file's path at the PR base, when it was renamed in the PR. */
+  oldPath?: string;
   dir: string;
 }
 
@@ -59,7 +61,7 @@ export function fileText(file: FileKey, state: number): Promise<string> {
   return cached(`text:${file.path}:${state}`, async () => {
     if (!inTauri()) return fetch(`/pr/files/${file.dir}/text-${state}`).then((r) => r.text());
     const { invoke } = await import("@tauri-apps/api/core");
-    return invoke<string>("file_text", { oid: stateOids[state], path: file.path });
+    return invoke<string>("file_text", { oid: stateOids[state], path: file.path, oldPath: file.oldPath ?? null });
   });
 }
 
@@ -68,7 +70,12 @@ export function fileDiff(file: FileKey, from: number, to: number): Promise<strin
   return cached(`diff:${file.path}:${from}-${to}`, async () => {
     if (!inTauri()) return fetch(`/pr/files/${file.dir}/diff-${from}-${to}`).then((r) => r.text());
     const { invoke } = await import("@tauri-apps/api/core");
-    return invoke<string>("file_diff", { fromOid: stateOids[from], toOid: stateOids[to], path: file.path });
+    return invoke<string>("file_diff", {
+      fromOid: stateOids[from],
+      toOid: stateOids[to],
+      path: file.path,
+      oldPath: file.oldPath ?? null,
+    });
   });
 }
 

@@ -3,10 +3,10 @@ import { rangeFromColumns, rangeLabel } from "../lib/range";
 import { useStore } from "../store";
 import { useCommitDrag } from "./useCommitDrag";
 
-function PathLabel({ path }: { path: string }) {
+function PathLabel({ path, oldPath }: { path: string; oldPath?: string }) {
   const i = path.lastIndexOf("/") + 1;
   return (
-    <span className="mx-path" title={path}>
+    <span className="mx-path" title={oldPath ? `${oldPath} → ${path}` : path}>
       <span className="mx-dir">{path.slice(0, i)}</span>
       <strong>{path.slice(i)}</strong>
     </span>
@@ -62,7 +62,7 @@ export function FileMatrix() {
             <button className="mx-row" key={f.path} onClick={() => setCurrentFile(f.path)}>
               <span className="mx-state">{fully && <span className="status-dot approved" />}</span>
               <span className="mx-file">
-                <PathLabel path={f.path} />
+                <PathLabel path={f.path} oldPath={f.oldPath} />
               </span>
               <span className="mx-stat">
                 <span className="add">{f.added}</span>/<span className="del">{f.removed}</span>
