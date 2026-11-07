@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { CommentBox, describeRange } from "../components/CommentBox";
+import { CommentBox, describeRange, type BoxMode } from "../components/CommentBox";
 import { ThreadBox } from "../components/ThreadBox";
 import type { ReviewEvent as Event, SubmitResult } from "../lib/backend";
 import { CONVERSATION_ID, isResolved, newCount, type FakeThread } from "../lib/threads";
@@ -68,6 +68,8 @@ export function ReviewTab() {
   const [sending, setSending] = useState<Event | null>(null);
   const [result, setResult] = useState<SubmitResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Shared across every draft box on this tab, so switching one switches them all.
+  const [boxMode, setBoxMode] = useState<BoxMode>("write");
   const staleCount = [...drafts.values()].filter((d) => d.stale && isRealDraft(d)).length;
 
   const groups = useMemo(() => {
@@ -147,7 +149,7 @@ export function ReviewTab() {
                     </div>
                   )}
                   <Snippet file={file} draft={d} />
-                  <CommentBox draft={d} preview />
+                  <CommentBox draft={d} mode={boxMode} onModeChange={setBoxMode} />
                 </div>
               );
             })}
@@ -165,7 +167,7 @@ export function ReviewTab() {
                     </button>
                   )}
                 </div>
-                <ThreadBox thread={t} expanded preview />
+                <ThreadBox thread={t} expanded mode={boxMode} onModeChange={setBoxMode} />
               </div>
             ))}
           </section>

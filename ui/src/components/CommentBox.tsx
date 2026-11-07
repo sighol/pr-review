@@ -5,17 +5,20 @@ import { insertBlock } from "../lib/suggest";
 import { useStore, type Draft } from "../store";
 import { Markdown } from "./Markdown";
 
+export type BoxMode = "write" | "preview";
+
 interface Props {
   draft: Draft;
-  /** Show a rendered preview under the textarea (Review tab). */
-  preview?: boolean;
+  /** Shared write/preview mode for every draft box on the Review tab; omit to always show the textarea (DiffView). */
+  mode?: BoxMode;
+  onModeChange?: (mode: BoxMode) => void;
 }
 
 export function describeRange({ side, start, end }: LineRange) {
   return start === end ? `${side} line ${start}` : `${side} lines ${start}–${end}`;
 }
 
-export function CommentBox({ draft, preview = false }: Props) {
+export function CommentBox({ draft, mode, onModeChange }: Props) {
   const { focus, patchDraft, removeDraft, fileByName } = useStore();
   const file = fileByName.get(draft.file);
   const focusTick = focus?.key === draft.key ? focus.tick : 0;
@@ -23,6 +26,8 @@ export function CommentBox({ draft, preview = false }: Props) {
   const pendingCaret = useRef<number | null>(null);
   const newLines = useMemo(() => textToLines(file?.newText ?? ""), [file?.newText]);
   const canSuggest = draft.range.side === "new";
+  const showToggle = mode !== undefined;
+  const effectiveMode = mode ?? "write";
 
   useLayoutEffect(() => {
     const el = ref.current;
@@ -39,6 +44,7 @@ export function CommentBox({ draft, preview = false }: Props) {
   useEffect(() => {
     const el = ref.current;
     if (!el || focusTick === 0) return;
+    onModeChange?.("write");
     el.focus();
     el.setSelectionRange(el.value.length, el.value.length);
   }, [focusTick]);
@@ -48,6 +54,7 @@ export function CommentBox({ draft, preview = false }: Props) {
     const caret = el ? el.selectionStart : draft.text.length;
     const next = insertBlock(draft.text, caret, suggestionBlock(draft.range, newLines));
     pendingCaret.current = next.caret;
+    onModeChange?.("write");
     patchDraft(draft.key, next.text);
   };
 
@@ -71,6 +78,22 @@ export function CommentBox({ draft, preview = false }: Props) {
           </button>
         </span>
       </div>
+      {showToggle && (
+        <div className="mode-toggle">
+          <button
+            className={`mode-tab${effectiveMode === "write" ? " active" : ""}`}
+            onClick={() => onModeChange?.("write")}
+          >
+            Write
+          </button>
+          <button
+            className={`mode-tab${effectiveMode === "preview" ? " active" : ""}`}
+            onClick={() => onModeChange?.("preview")}
+          >
+            Preview
+          </button>
+        </div>
+      )}
       <textarea
         ref={ref}
         value={draft.text}
@@ -79,15 +102,19 @@ export function CommentBox({ draft, preview = false }: Props) {
         onBlur={() => {
           if (draft.text.trim() === "") removeDraft(draft.key);
         }}
+        style={showToggle && effectiveMode === "preview" ? { display: "none" } : undefined}
       />
-      {preview && draft.text.trim() !== "" && (
+      {showToggle && effectiveMode === "preview" && (
         <div className="preview">
-          <div className="preview-label">Preview</div>
-          <Markdown
-            text={draft.text}
-            fileLang={langFor(file?.path ?? "")}
-            replaces={canSuggest ? newLines.slice(draft.range.start - 1, draft.range.end) : null}
-          />
+          {draft.text.trim() !== "" ? (
+            <Markdown
+              text={draft.text}
+              fileLang={langFor(file?.path ?? "")}
+              replaces={canSuggest ? newLines.slice(draft.range.start - 1, draft.range.end) : null}
+            />
+          ) : (
+            <div className="muted">Nothing to preview yet.</div>
+          )}
         </div>
       )}
     </div>

@@ -3,6 +3,7 @@ import { langFor } from "../lib/highlight";
 import { asOfRange, rangeLabel, sameRange } from "../lib/range";
 import { firstNewIndex, isResolved, newCount, replacedLines, type FakeThread } from "../lib/threads";
 import { useStore } from "../store";
+import type { BoxMode } from "./CommentBox";
 import { ExternalLink } from "./ExternalLink";
 import { Markdown } from "./Markdown";
 
@@ -10,11 +11,12 @@ interface Props {
   thread: FakeThread;
   /** Never collapse, even when resolved (used on the Review tab). */
   expanded?: boolean;
-  /** Show a rendered preview under reply drafts. */
-  preview?: boolean;
+  /** Shared write/preview mode for every draft box on the Review tab; omit to always show the textarea. */
+  mode?: BoxMode;
+  onModeChange?: (mode: BoxMode) => void;
 }
 
-export function ThreadBox({ thread, expanded = false, preview = false }: Props) {
+export function ThreadBox({ thread, expanded = false, mode, onModeChange }: Props) {
   const { resolutions, resolveThread, reopenThread, fileByName, rangeFor, viewAsOf } = useStore();
   const resolution = resolutions.get(thread.id);
   const resolved = isResolved(thread, resolution);
@@ -105,7 +107,7 @@ export function ThreadBox({ thread, expanded = false, preview = false }: Props) 
           </div>
         );
       })}
-      <ReplyBox threadId={thread.id} fileLang={fileLang} replaces={replaces} preview={preview} />
+      <ReplyBox threadId={thread.id} fileLang={fileLang} replaces={replaces} mode={mode} onModeChange={onModeChange} />
     </div>
   );
 }
@@ -114,15 +116,19 @@ export function ReplyBox({
   threadId,
   fileLang,
   replaces,
-  preview,
+  mode,
+  onModeChange,
 }: {
   threadId: string;
   fileLang: string | null;
   replaces: string[] | null;
-  preview: boolean;
+  mode?: BoxMode;
+  onModeChange?: (mode: BoxMode) => void;
 }) {
   const { replies, setReply } = useStore();
   const text = replies.get(threadId);
+  const showToggle = mode !== undefined;
+  const effectiveMode = mode ?? "write";
 
   if (text === undefined) {
     return (
@@ -140,6 +146,22 @@ export function ReplyBox({
         <button className="link reply-delete" onClick={() => setReply(threadId, null)}>
           delete
         </button>
+        {showToggle && (
+          <div className="mode-toggle">
+            <button
+              className={`mode-tab${effectiveMode === "write" ? " active" : ""}`}
+              onClick={() => onModeChange?.("write")}
+            >
+              Write
+            </button>
+            <button
+              className={`mode-tab${effectiveMode === "preview" ? " active" : ""}`}
+              onClick={() => onModeChange?.("preview")}
+            >
+              Preview
+            </button>
+          </div>
+        )}
         <textarea
           autoFocus={text === ""}
           className="reply-box"
@@ -147,11 +169,15 @@ export function ReplyBox({
           placeholder="Reply"
           onChange={(e) => setReply(threadId, e.target.value)}
           onBlur={() => text.trim() === "" && setReply(threadId, null)}
+          style={showToggle && effectiveMode === "preview" ? { display: "none" } : undefined}
         />
-        {preview && text.trim() !== "" && (
+        {showToggle && effectiveMode === "preview" && (
           <div className="preview">
-            <div className="preview-label">Preview</div>
-            <Markdown text={text} fileLang={fileLang} replaces={replaces} />
+            {text.trim() !== "" ? (
+              <Markdown text={text} fileLang={fileLang} replaces={replaces} />
+            ) : (
+              <div className="muted">Nothing to preview yet.</div>
+            )}
           </div>
         )}
       </div>

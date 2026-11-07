@@ -930,15 +930,26 @@ textarea {
   border-radius: 0 0 6px 6px;
 }
 .preview {
-  margin-top: 8px;
-  padding-top: 6px;
-  border-top: 1px dashed var(--border);
+  min-height: 64px;
 }
-.preview-label {
-  color: var(--muted);
+.mode-toggle {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+.mode-tab {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 8px;
   font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  color: var(--muted);
+  cursor: pointer;
+}
+.mode-tab.active {
+  background: var(--bg-subtle);
+  color: var(--fg);
+  border-color: var(--accent);
 }
 .submit-bar {
   position: sticky;
