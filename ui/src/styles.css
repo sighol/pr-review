@@ -995,14 +995,48 @@ textarea {
   max-width: 920px;
   margin: 0 auto;
 }
-.submit-inner textarea {
-  width: 100%;
+.directive-editor {
+  display: grid;
   min-height: 72px;
-  resize: vertical;
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 6px;
+}
+.directive-editor > * {
+  grid-area: 1 / 1;
+  margin: 0;
   padding: 8px 10px;
+  font: inherit;
+  line-height: inherit;
+  letter-spacing: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  min-width: 0;
+}
+.directive-backdrop {
+  color: transparent;
+  pointer-events: none;
+}
+.directive-backdrop mark {
+  color: transparent;
+  background: rgba(121, 192, 255, 0.28);
+  border-radius: 3px;
+}
+.directive-editor textarea {
+  width: 100%;
+  resize: none;
+  overflow: hidden;
+  background: transparent;
+  border: 0;
+  outline: none;
+}
+.directive-editor:focus-within {
+  border-color: var(--accent);
+}
+.directive-summary {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #79c0ff;
 }
 .submit-actions {
   display: flex;

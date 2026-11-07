@@ -21,6 +21,7 @@ import {
   type SavedState,
   type SubmitResult,
 } from "./lib/backend";
+import { formatDirectives, type Directives } from "./lib/directives";
 import { CONVERSATION_ID, lastCommentId, threadFromJson, type FakeThread, type PrInfo, type Resolution } from "./lib/threads";
 
 export type { Tab } from "./lib/route";
@@ -119,9 +120,11 @@ interface Store {
   acknowledgeDraft: (key: string) => void;
   /**
    * Sends the saved review to GitHub and, on success, clears drafts, replies and the review body
-   * and swaps in the refreshed threads. Resolves to null in a browser, where nothing is sent.
+   * and swaps in the refreshed threads. `text` is the review body without its directives.
+   * If a label or assignee change failed, the body becomes the directives still to apply.
+   * Resolves to null in a browser, where nothing is sent.
    */
-  submitReview: (event: ReviewEvent) => Promise<SubmitResult | null>;
+  submitReview: (event: ReviewEvent, text: string, directives: Directives) => Promise<SubmitResult | null>;
 
   /** Reply drafts by thread id. "" means an open but empty box. */
   replies: ReadonlyMap<string, string>;
@@ -482,12 +485,17 @@ export function StoreProvider({
     persist.acknowledgeDraft(key);
   }, []);
 
-  const submitReview = useCallback(async (event: ReviewEvent): Promise<SubmitResult | null> => {
-    const result = await sendReview(event);
+  const submitReview = useCallback(async (event: ReviewEvent, text: string, directives: Directives): Promise<SubmitResult | null> => {
+    const result = await sendReview(event, text, directives);
     if (!result) return null;
     // The backend already cleared its copy; mirror that here without saving anything.
     setDrafts(new Map());
-    setReviewBodyState("");
+    if (result.directives.error) {
+      // Keep what still has to be applied, so submitting again retries only that.
+      setReviewBody(formatDirectives(result.directives.unapplied));
+    } else {
+      setReviewBodyState("");
+    }
     setReplies((prev) =>
       result.conversationError ? new Map([...prev].filter(([id]) => id === CONVERSATION_ID)) : new Map(),
     );

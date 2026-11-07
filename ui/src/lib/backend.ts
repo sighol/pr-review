@@ -1,4 +1,5 @@
 import type { Commit } from "../store";
+import type { Directives } from "./directives";
 import type { PrInfo, ThreadJson } from "./threads";
 
 export interface Manifest {
@@ -141,9 +142,12 @@ if (typeof window !== "undefined") {
 export type ReviewEvent = "APPROVE" | "COMMENT" | "REQUEST_CHANGES";
 
 export interface SubmitResult {
-  reviewUrl: string;
+  /** Null when only label and assignee changes were made and no review was posted. */
+  reviewUrl: string | null;
   /** The review went through but the conversation comment did not. */
   conversationError: string | null;
+  /** What the label and assignee changes did; `unapplied` is what is left to retry after an error. */
+  directives: { changes: string[]; error: string | null; unapplied: Directives };
   /** The discussion after the review; null if refetching it failed. */
   threads: ThreadJson[] | null;
   refreshError: string | null;
@@ -153,12 +157,12 @@ export interface SubmitResult {
  * Sends the saved review to GitHub. Resolves to null in a browser, where nothing is sent.
  * Rejects with GitHub's or git's message when the submit fails; nothing is posted then.
  */
-export function submitReview(event: ReviewEvent): Promise<SubmitResult | null> {
+export function submitReview(event: ReviewEvent, body: string, directives: Directives): Promise<SubmitResult | null> {
   if (!inTauri()) return Promise.resolve(null);
   flushSaves(); // so the database has everything you typed
   const run = queue.then(async () => {
     const { invoke } = await import("@tauri-apps/api/core");
-    return invoke<SubmitResult>("submit_review", { event });
+    return invoke<SubmitResult>("submit_review", { event, body, directives });
   });
   queue = run.catch(() => undefined);
   return run;

@@ -6,8 +6,9 @@ use std::time::Instant;
 
 use clap::Parser;
 use pr_review_core::db::{Db, Draft, SavedState};
+use pr_review_core::directives::Directives;
 use pr_review_core::manifest::Manifest;
-use pr_review_core::review::SubmitResult;
+use pr_review_core::review::{ReviewInput, SubmitResult};
 use pr_review_core::threads::build_threads;
 use pr_review_core::{git, github, pr, review};
 use tauri::{Manager, State};
@@ -214,7 +215,12 @@ async fn acknowledge_draft(state: State<'_, AppState>, draft_key: String) -> Res
 }
 
 #[tauri::command]
-async fn submit_review(state: State<'_, AppState>, event: String) -> Result<SubmitResult, String> {
+async fn submit_review(
+    state: State<'_, AppState>,
+    event: String,
+    body: String,
+    directives: Directives,
+) -> Result<SubmitResult, String> {
     info!("submitting the review ({event})");
     let (base, head, commits) = {
         let m = state.manifest.lock().unwrap();
@@ -222,11 +228,27 @@ async fn submit_review(state: State<'_, AppState>, event: String) -> Result<Subm
     };
     let result = logged(
         "submit_review",
-        review::submit_saved(&state.db, &state.repo, &base, &head, &commits, &event),
+        review::submit_saved(
+            &state.db,
+            &state.repo,
+            &base,
+            &head,
+            &commits,
+            ReviewInput {
+                event: event.clone(),
+                body,
+                directives,
+            },
+        ),
     )
     .await;
     match &result {
-        Ok(r) => info!("review submitted: {}", r.review_url),
+        Ok(r) => info!(
+            "review submitted: {}",
+            r.review_url
+                .as_deref()
+                .unwrap_or("(no review, only label/assignee changes)")
+        ),
         Err(e) => warn!("review not submitted: {e}"),
     }
     result

@@ -5,6 +5,7 @@ use anyhow::{Context, Result, bail};
 use serde::Serialize;
 
 use crate::db::{Db, Draft, SavedState};
+use crate::directives::{Applied, Directives};
 use crate::manifest::ManifestCommit;
 use crate::submit::{Event, Gh, NewComment, Submission, ThreadReply, submit};
 use crate::threads::{CONVERSATION_ID, Thread, build_threads};
@@ -41,7 +42,14 @@ fn non_blank(s: &str) -> bool {
 }
 
 /// Turns the saved review state into what gets sent, refusing what GitHub would refuse.
-pub fn build_submission(saved: &SavedState, event: Event, head_oid: &str) -> Result<Submission> {
+/// `body` is the review text with the directives already removed.
+pub fn build_submission(
+    saved: &SavedState,
+    event: Event,
+    head_oid: &str,
+    body: &str,
+    directives: Directives,
+) -> Result<Submission> {
     let stale = saved.drafts.iter().filter(|d| d.stale).count();
     if stale > 0 {
         bail!(
@@ -80,25 +88,27 @@ pub fn build_submission(saved: &SavedState, event: Event, head_oid: &str) -> Res
         .find(|r| r.thread_id == CONVERSATION_ID && non_blank(&r.body))
         .map(|r| r.body.clone());
 
-    let has_body = non_blank(&saved.review_body);
+    let has_body = non_blank(body);
+    let nothing_to_say =
+        !has_body && comments.is_empty() && replies.is_empty() && conversation_reply.is_none();
+    let mut post_review = true;
     match event {
         Event::RequestChanges if !has_body => {
             bail!("GitHub requires a comment to request changes.")
         }
-        Event::Comment
-            if !has_body
-                && comments.is_empty()
-                && replies.is_empty()
-                && conversation_reply.is_none() =>
-        {
+        Event::Comment if nothing_to_say && directives.is_empty() => {
             bail!("There is nothing to send: write a comment first.")
         }
+        // Only label and assignee changes: there is no review to post.
+        Event::Comment if nothing_to_say => post_review = false,
         _ => {}
     }
 
     Ok(Submission {
         event,
-        body: saved.review_body.clone(),
+        body: body.to_string(),
+        directives,
+        post_review,
         head_oid: head_oid.to_string(),
         comments,
         replies,
@@ -109,12 +119,24 @@ pub fn build_submission(saved: &SavedState, event: Event, head_oid: &str) -> Res
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SubmitResult {
-    pub review_url: String,
+    /// None when only label and assignee changes were made.
+    pub review_url: Option<String>,
     /// Set when the review went through but the conversation comment did not.
     pub conversation_error: Option<String>,
+    /// What the label and assignee changes did, and what is left to retry.
+    pub directives: Applied,
     /// The PR's discussion after the review, so the new comments show up; None if refetching failed.
     pub threads: Option<Vec<Thread>>,
     pub refresh_error: Option<String>,
+}
+
+/// What the reviewer chose in the window: the verdict and the review text. The text arrives with
+/// the directives already taken out of it.
+#[derive(Debug, Clone)]
+pub struct ReviewInput {
+    pub event: String,
+    pub body: String,
+    pub directives: Directives,
 }
 
 /// Submits the saved review to GitHub, then clears what it used up and refetches the discussion.
@@ -124,11 +146,11 @@ pub async fn submit_saved(
     base: &str,
     head: &str,
     commits: &[ManifestCommit],
-    event: &str,
+    input: ReviewInput,
 ) -> Result<SubmitResult> {
-    let event: Event = event.parse()?;
+    let event: Event = input.event.parse()?;
     let saved = load_saved(db, repo, base, head).await?;
-    let submission = build_submission(&saved, event, head)?;
+    let submission = build_submission(&saved, event, head, &input.body, input.directives)?;
     let key = db.key();
 
     let outcome = submit(&Gh, &key.owner, &key.repo, key.number, &submission).await?;
@@ -151,6 +173,7 @@ pub async fn submit_saved(
     Ok(SubmitResult {
         review_url: outcome.review_url,
         conversation_error: outcome.conversation_error,
+        directives: outcome.directives,
         threads,
         refresh_error,
     })
@@ -223,11 +246,23 @@ mod tests {
         }
     }
 
+    fn build(saved: &SavedState, event: Event, body: &str) -> Result<Submission> {
+        build_submission(saved, event, "h", body, Directives::default())
+    }
+
+    fn label(name: &str) -> Directives {
+        Directives {
+            add_labels: vec![name.into()],
+            ..Directives::default()
+        }
+    }
+
     #[test]
     fn splits_comments_thread_replies_and_the_conversation_reply() {
-        let s = build_submission(&saved(), Event::Approve, "h").unwrap();
+        let s = build(&saved(), Event::Approve, "LGTM").unwrap();
         assert_eq!(s.head_oid, "h");
         assert_eq!(s.body, "LGTM");
+        assert!(s.post_review);
         assert_eq!(s.comments.len(), 1);
         assert_eq!(
             (
@@ -251,24 +286,22 @@ mod tests {
     fn stale_drafts_block_submitting() {
         let mut s = saved();
         s.drafts[0].stale = true;
-        let err = build_submission(&s, Event::Comment, "h")
-            .unwrap_err()
-            .to_string();
+        let err = build(&s, Event::Comment, "").unwrap_err().to_string();
         assert!(err.contains("1 draft comment may be on the wrong line"));
     }
 
     #[test]
     fn refuses_what_github_refuses() {
         let empty = SavedState::default();
-        assert!(build_submission(&empty, Event::Comment, "h").is_err());
-        assert!(build_submission(&empty, Event::Approve, "h").is_ok());
+        assert!(build(&empty, Event::Comment, "").is_err());
+        assert!(build(&empty, Event::Approve, "").is_ok());
 
         let no_body = SavedState {
             drafts: vec![draft("new", "h", "b")],
             ..SavedState::default()
         };
-        assert!(build_submission(&no_body, Event::RequestChanges, "h").is_err());
-        assert!(build_submission(&no_body, Event::Comment, "h").is_ok());
+        assert!(build(&no_body, Event::RequestChanges, "").is_err());
+        assert!(build(&no_body, Event::Comment, "").is_ok());
     }
 
     #[test]
@@ -280,6 +313,24 @@ mod tests {
             }],
             ..SavedState::default()
         };
-        assert!(build_submission(&only, Event::Comment, "h").is_ok());
+        assert!(build(&only, Event::Comment, "").is_ok());
+    }
+
+    #[test]
+    fn directives_alone_make_a_comment_that_posts_no_review() {
+        let empty = SavedState::default();
+        let s = build_submission(&empty, Event::Comment, "h", "", label("x")).unwrap();
+        assert!(!s.post_review);
+        assert_eq!(s.directives, label("x"));
+    }
+
+    #[test]
+    fn directives_do_not_satisfy_request_changes_and_approve_still_posts() {
+        let empty = SavedState::default();
+        assert!(build_submission(&empty, Event::RequestChanges, "h", "", label("x")).is_err());
+        let s = build_submission(&empty, Event::Approve, "h", "", label("x")).unwrap();
+        assert!(s.post_review);
+        let s = build_submission(&empty, Event::Comment, "h", "text", label("x")).unwrap();
+        assert!(s.post_review);
     }
 }

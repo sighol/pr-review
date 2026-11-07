@@ -1,7 +1,9 @@
 import { useMemo, useState } from "react";
 import { CommentBox, describeRange } from "../components/CommentBox";
+import { DirectiveTextarea } from "../components/DirectiveTextarea";
 import { ThreadBox } from "../components/ThreadBox";
 import type { ReviewEvent as Event, SubmitResult } from "../lib/backend";
+import { describeDirectives, hasDirectives, parseDirectives } from "../lib/directives";
 import { CONVERSATION_ID, isResolved, newCount, type FakeThread } from "../lib/threads";
 import { useRangeData } from "../lib/data";
 import { snippetFor } from "../lib/snippet";
@@ -86,11 +88,14 @@ export function ReviewTab() {
     return out;
   }, [files, drafts, replies, threads]);
 
-  const body = reviewBody.trim();
+  // GitHub's rules apply to the text that is left once the directives are taken out.
+  const parsed = useMemo(() => parseDirectives(reviewBody), [reviewBody]);
+  const body = parsed.text;
+  const changes = hasDirectives(parsed.directives);
   const idle = sending === null && staleCount === 0;
   const canSubmit: Record<Event, boolean> = {
     APPROVE: idle,
-    COMMENT: idle && (body !== "" || pending > 0),
+    COMMENT: idle && (body !== "" || pending > 0 || changes),
     REQUEST_CHANGES: idle && body !== "",
   };
   const submit = async (event: Event) => {
@@ -99,9 +104,12 @@ export function ReviewTab() {
     setSubmitted(null);
     setSending(event);
     try {
-      const sent = await submitReview(event);
+      const sent = await submitReview(event, parsed.text, parsed.directives);
       if (sent) setResult(sent);
-      else setSubmitted({ event, payload: { event, body: reviewBody, ...payload } });
+      else {
+        const directives = changes ? { directives: parsed.directives } : {};
+        setSubmitted({ event, payload: { event, body: parsed.text, ...directives, ...payload } });
+      }
     } catch (e) {
       setError(String(e));
     } finally {
@@ -182,11 +190,16 @@ export function ReviewTab() {
 
       <div className="submit-bar">
         <div className="submit-inner">
-          <textarea
+          <DirectiveTextarea
             value={reviewBody}
             placeholder="Leave a comment on the whole review (required to request changes)"
-            onChange={(e) => setReviewBody(e.target.value)}
+            onChange={setReviewBody}
           />
+          {changes && (
+            <div className="directive-summary">
+              {describeDirectives(parsed.directives, body !== "" || pending > 0).join(" · ")}
+            </div>
+          )}
           <div className="submit-actions">
             <button
               className="action"
@@ -215,8 +228,17 @@ export function ReviewTab() {
           </div>
           {error && <div className="submit-note error">Nothing was posted. {error}</div>}
           {result && (
-            <div className={`submit-note ${result.conversationError || result.refreshError ? "warn" : "ok"}`}>
-              <div>Review submitted: {result.reviewUrl}</div>
+            <div
+              className={`submit-note ${result.conversationError || result.refreshError || result.directives.error ? "warn" : "ok"}`}
+            >
+              <div>{result.reviewUrl ? `Review submitted: ${result.reviewUrl}` : "No review was posted."}</div>
+              {result.directives.changes.length > 0 && <div>{result.directives.changes.join(" · ")}</div>}
+              {result.directives.error && (
+                <div>
+                  A label or assignee change failed ({result.directives.error}). The changes that did not go through
+                  are back in the review text; fix the problem and press Comment to retry.
+                </div>
+              )}
               {result.conversationError && (
                 <div>
                   Your conversation comment was not posted ({result.conversationError}). It is still in your drafts.

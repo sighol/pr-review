@@ -5,6 +5,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use serde::Serialize;
 use serde_json::{Value, json};
 
+use crate::directives::{self, Applied, Directives};
 use crate::github;
 
 /// What the review says about the PR.
@@ -65,14 +66,20 @@ pub struct Submission {
     pub replies: Vec<ThreadReply>,
     /// A reply to the PR conversation; posted after the review, as a plain comment.
     pub conversation_reply: Option<String>,
+    /// Label and assignee changes, applied after the review.
+    pub directives: Directives,
+    /// False when there is only label/assignee changes and nothing to say to GitHub as a review.
+    pub post_review: bool,
 }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Outcome {
-    pub review_url: String,
+    /// None when no review was posted (only directives).
+    pub review_url: Option<String>,
     /// Set when the review went through but the conversation comment did not.
     pub conversation_error: Option<String>,
+    pub directives: Applied,
 }
 
 /// Anything that can run a GraphQL query; `gh` in production, a fake in tests.
@@ -153,37 +160,49 @@ pub async fn submit(
         )
         .await?;
     let pr_id = string_at(&pr, "/repository/pullRequest/id")?.to_string();
-    if string_at(&pr, "/repository/pullRequest/headRefOid")? != sub.head_oid {
+    if sub.post_review && string_at(&pr, "/repository/pullRequest/headRefOid")? != sub.head_oid {
         bail!(
             "The PR has new commits on GitHub since pr-review fetched it. \
              Restart pr-review to pick them up, then submit again."
         );
     }
-    if pr
-        .pointer("/repository/pullRequest/reviews/totalCount")
-        .and_then(Value::as_u64)
-        != Some(0)
+    if sub.post_review
+        && pr
+            .pointer("/repository/pullRequest/reviews/totalCount")
+            .and_then(Value::as_u64)
+            != Some(0)
     {
         bail!(
             "You already have a pending review on this PR on GitHub. Submit or discard it there first."
         );
     }
 
-    let review = gh
-        .call(ADD_REVIEW, json!({ "pr": pr_id, "commit": sub.head_oid }))
-        .await?;
-    let review_id = string_at(&review, "/addPullRequestReview/pullRequestReview/id")?.to_string();
+    // Checked before anything is posted, so a typo in a label never leaves a half-done result.
+    let plan = if sub.directives.is_empty() {
+        None
+    } else {
+        Some(directives::plan(gh, owner, repo, number, &pr_id, &sub.directives).await?)
+    };
 
-    let review_url = match fill_and_submit(gh, &review_id, sub).await {
-        Ok(url) => url,
-        Err(e) => {
-            return Err(match gh.call(DELETE, json!({ "id": review_id })).await {
-                Ok(_) => e,
-                Err(cleanup) => anyhow!(
-                    "{e:#}. Also could not delete the pending review on GitHub, discard it there: {cleanup:#}"
-                ),
-            });
+    let review_url = if sub.post_review {
+        let review = gh
+            .call(ADD_REVIEW, json!({ "pr": pr_id, "commit": sub.head_oid }))
+            .await?;
+        let review_id =
+            string_at(&review, "/addPullRequestReview/pullRequestReview/id")?.to_string();
+        match fill_and_submit(gh, &review_id, sub).await {
+            Ok(url) => Some(url),
+            Err(e) => {
+                return Err(match gh.call(DELETE, json!({ "id": review_id })).await {
+                    Ok(_) => e,
+                    Err(cleanup) => anyhow!(
+                        "{e:#}. Also could not delete the pending review on GitHub, discard it there: {cleanup:#}"
+                    ),
+                });
+            }
         }
+    } else {
+        None
     };
 
     let conversation_error = match sub.conversation_reply.as_deref() {
@@ -197,9 +216,14 @@ pub async fn submit(
             .map(|e| format!("{e:#}")),
         None => None,
     };
+    let directives = match &plan {
+        Some(plan) => directives::apply(gh, plan).await,
+        None => Applied::default(),
+    };
     Ok(Outcome {
         review_url,
         conversation_error,
+        directives,
     })
 }
 
@@ -295,6 +319,14 @@ mod tests {
                     "comment",
                     json!({"addComment": {"commentEdge": {"node": {"url": "https://example/c"}}}}),
                 ),
+                directives::LOOKUP => (
+                    "lookup",
+                    json!({"viewer": {"login": "me"}, "repository": {
+                        "labels": {"nodes": [{"id": "L1", "name": "ready"}], "pageInfo": {"hasNextPage": false, "endCursor": null}},
+                        "pullRequest": {"labels": {"nodes": []}, "assignees": {"nodes": []}},
+                    }}),
+                ),
+                directives::ADD_LABELS => ("add_labels", json!({})),
                 other => panic!("unexpected query {other}"),
             };
             self.calls.lock().unwrap().push((name, variables));
@@ -331,6 +363,8 @@ mod tests {
                 body: "agreed".into(),
             }],
             conversation_reply: Some("thanks".into()),
+            directives: Directives::default(),
+            post_review: true,
         }
     }
 
@@ -344,7 +378,7 @@ mod tests {
                 "pr", "review", "thread", "thread", "reply", "submit", "comment"
             ]
         );
-        assert_eq!(out.review_url, "https://example/r");
+        assert_eq!(out.review_url.as_deref(), Some("https://example/r"));
         assert_eq!(out.conversation_error, None);
 
         let calls = gh.calls.lock().unwrap();
@@ -417,7 +451,7 @@ mod tests {
             ..Fake::new()
         };
         let out = submit(&gh, "o", "r", 7, &submission()).await.unwrap();
-        assert_eq!(out.review_url, "https://example/r");
+        assert_eq!(out.review_url.as_deref(), Some("https://example/r"));
         assert!(out.conversation_error.unwrap().contains("boom in comment"));
         assert!(!gh.names().contains(&"delete"));
     }
@@ -431,6 +465,89 @@ mod tests {
         };
         submit(&gh, "o", "r", 7, &sub).await.unwrap();
         assert!(!gh.names().contains(&"comment"));
+    }
+
+    fn add_label(name: &str) -> Directives {
+        Directives {
+            add_labels: vec![name.into()],
+            ..Directives::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn directives_are_checked_before_the_review_and_applied_after_it() {
+        let gh = Fake::new();
+        let sub = Submission {
+            directives: add_label("Ready"),
+            ..submission()
+        };
+        let out = submit(&gh, "o", "r", 7, &sub).await.unwrap();
+        assert_eq!(
+            gh.names(),
+            [
+                "pr",
+                "lookup",
+                "review",
+                "thread",
+                "thread",
+                "reply",
+                "submit",
+                "comment",
+                "add_labels"
+            ]
+        );
+        assert_eq!(out.directives.changes, ["Added label ready"]);
+        assert_eq!(out.directives.error, None);
+    }
+
+    #[tokio::test]
+    async fn an_unknown_label_stops_everything_before_the_review() {
+        let gh = Fake::new();
+        let sub = Submission {
+            directives: add_label("reayd"),
+            ..submission()
+        };
+        let err = submit(&gh, "o", "r", 7, &sub).await.unwrap_err();
+        assert!(err.to_string().contains("no such label"));
+        assert_eq!(gh.names(), ["pr", "lookup"]);
+    }
+
+    #[tokio::test]
+    async fn only_directives_post_no_review() {
+        let gh = Fake {
+            head: "NEWER",
+            pending: 1,
+            ..Fake::new()
+        };
+        let sub = Submission {
+            event: Event::Comment,
+            body: String::new(),
+            comments: vec![],
+            replies: vec![],
+            conversation_reply: None,
+            directives: add_label("ready"),
+            post_review: false,
+            ..submission()
+        };
+        let out = submit(&gh, "o", "r", 7, &sub).await.unwrap();
+        assert_eq!(out.review_url, None);
+        assert_eq!(gh.names(), ["pr", "lookup", "add_labels"]);
+    }
+
+    #[tokio::test]
+    async fn a_failed_label_change_keeps_the_review() {
+        let gh = Fake {
+            fail: &["add_labels"],
+            ..Fake::new()
+        };
+        let sub = Submission {
+            directives: add_label("ready"),
+            ..submission()
+        };
+        let out = submit(&gh, "o", "r", 7, &sub).await.unwrap();
+        assert_eq!(out.review_url.as_deref(), Some("https://example/r"));
+        assert!(out.directives.error.unwrap().contains("boom in add_labels"));
+        assert_eq!(out.directives.unapplied, add_label("ready"));
     }
 
     #[test]
