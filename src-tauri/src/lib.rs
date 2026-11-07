@@ -9,7 +9,7 @@ use pr_review_core::manifest::Manifest;
 use pr_review_core::review::SubmitResult;
 use pr_review_core::threads::build_threads;
 use pr_review_core::{git, github, pr, review};
-use tauri::State;
+use tauri::{Manager, State};
 use tracing::{debug, info, warn};
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::time::uptime;
@@ -75,6 +75,13 @@ fn exit_with(message: &str, code: i32) -> ! {
     std::process::exit(code)
 }
 
+fn window_title(repo: &str, number: u64, pr_title: Option<&str>) -> String {
+    match pr_title {
+        Some(t) => format!("Review {repo} #{number} {t}"),
+        None => format!("Review {repo} #{number}"),
+    }
+}
+
 #[tauri::command]
 fn open_pr(state: State<'_, AppState>) -> Manifest {
     let m = state.manifest.lock().unwrap();
@@ -90,7 +97,7 @@ fn open_pr(state: State<'_, AppState>) -> Manifest {
 /// Re-fetches the PR's metadata and discussion (not its commits/files, so a new push still needs
 /// a restart) and updates the stored manifest. See "Not built yet" in CLAUDE.md.
 #[tauri::command]
-async fn refresh(state: State<'_, AppState>) -> Result<Manifest, String> {
+async fn refresh(state: State<'_, AppState>, window: tauri::Window) -> Result<Manifest, String> {
     let key = state.db.key().clone();
     logged(&format!("refresh PR #{}", key.number), async {
         let (info, (raw_threads, conversation)) = tokio::try_join!(
@@ -110,6 +117,14 @@ async fn refresh(state: State<'_, AppState>) -> Result<Manifest, String> {
             key.number,
             manifest.threads.as_ref().map_or(0, Vec::len)
         );
+        let title = window_title(
+            &key.repo,
+            key.number,
+            manifest.pr.as_ref().map(|p| p.title.as_str()),
+        );
+        if let Err(e) = window.set_title(&title) {
+            warn!("could not set the window title: {e}");
+        }
         Ok(manifest.clone())
     })
     .await
@@ -371,6 +386,12 @@ pub fn run() {
     #[cfg(target_os = "linux")]
     ensure_gtk_dpi();
 
+    let title = window_title(
+        &opened.key.repo,
+        opened.key.number,
+        opened.manifest.pr.as_ref().map(|p| p.title.as_str()),
+    );
+
     info!("starting the window after {:?}", started.elapsed());
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -378,6 +399,14 @@ pub fn run() {
             repo: opened.repo,
             manifest: Mutex::new(opened.manifest),
             db,
+        })
+        .setup(move |app| {
+            if let Some(window) = app.get_webview_window("main") {
+                if let Err(e) = window.set_title(&title) {
+                    warn!("could not set the window title: {e}");
+                }
+            }
+            Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             open_pr,
