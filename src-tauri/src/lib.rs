@@ -20,8 +20,8 @@ use tracing_subscriber::{EnvFilter, Registry, reload};
 /// Review a GitHub pull request side-by-side. Needs `git` and an authenticated `gh`.
 ///
 /// By default the window opens in the background and the terminal is free again once it is up;
-/// progress and errors from starting up are still shown. Logs are off after that. PR_REVIEW_LOG
-/// accepts a level or a full tracing filter and overrides --debug.
+/// progress and errors from starting up are shown at warn level. Logs are off after that.
+/// PR_REVIEW_LOG accepts a level or a full tracing filter and overrides --verbose.
 #[derive(Parser)]
 #[command(name = "pr-review")]
 struct Args {
@@ -34,17 +34,17 @@ struct Args {
     repository: Option<PathBuf>,
 
     /// Stay in the foreground until the window is closed
-    #[arg(long)]
+    #[arg(long, short)]
     wait: bool,
 
-    /// Log everything, including every git and gh call, to stderr (implies --wait)
-    #[arg(long)]
-    debug: bool,
+    /// Log at info level, including every git and gh call, to stderr (implies --wait)
+    #[arg(long, short)]
+    verbose: bool,
 }
 
 impl Args {
     fn foreground(&self) -> bool {
-        self.wait || self.debug
+        self.wait || self.verbose
     }
 }
 
@@ -60,7 +60,7 @@ struct AppState {
     db: Db,
 }
 
-const STARTUP_FILTER: &str = "warn,pr_review_core=info,pr_review_lib=info,frontend=info";
+const STARTUP_FILTER: &str = "warn";
 
 /// Set when logging is only on for starting up; see `init_logging`.
 static STARTUP_ONLY: OnceLock<reload::Handle<EnvFilter, Registry>> = OnceLock::new();
@@ -77,12 +77,13 @@ fn filter_for(spec: &str) -> String {
 }
 
 /// Sets up logging to stderr. With `PR_REVIEW_LOG` (a level or a full tracing filter) or
-/// `--debug` logging is on as asked. Otherwise it is on only while starting up, so the terminal
-/// shows what is happening, and `logs_off_after_startup` turns it off once the window is up.
-fn init_logging(debug: bool) {
+/// `--verbose` logging is on as asked. Otherwise it is on at warn level only while starting up,
+/// so the terminal shows what is happening, and `logs_off_after_startup` turns it off once the
+/// window is up.
+fn init_logging(verbose: bool) {
     let asked = std::env::var("PR_REVIEW_LOG")
         .ok()
-        .or_else(|| debug.then(|| "debug".to_string()));
+        .or_else(|| verbose.then(|| "info".to_string()));
     let directives = asked
         .as_deref()
         .map_or_else(|| STARTUP_FILTER.to_string(), filter_for);
@@ -104,7 +105,7 @@ fn init_logging(debug: bool) {
     }
 }
 
-/// Turns logging off unless it was asked for with `--debug` or `PR_REVIEW_LOG`.
+/// Turns logging off unless it was asked for with `--verbose` or `PR_REVIEW_LOG`.
 fn logs_off_after_startup() {
     if let Some(handle) = STARTUP_ONLY.get()
         && let Err(e) = handle.reload(EnvFilter::new("off"))
@@ -131,8 +132,8 @@ mod tests {
     }
 
     #[test]
-    fn debug_implies_wait() {
-        assert!(foreground(&["--debug", "13486"]));
+    fn verbose_implies_wait() {
+        assert!(foreground(&["--verbose", "13486"]));
     }
 
     #[test]
@@ -435,7 +436,7 @@ pub fn run() {
     if !args.foreground() && !launch::is_background_copy() {
         launch::start_in_background();
     }
-    init_logging(args.debug);
+    init_logging(args.verbose);
     let started = Instant::now();
     let number = args.number;
     let cwd = match args.repository {

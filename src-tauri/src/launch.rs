@@ -1,6 +1,6 @@
 //! Running in the background, like `code` or `zeditor`: the command you type starts a copy of
 //! itself, relays that copy's startup output (progress and errors) to your terminal until the
-//! window is up, and then exits so the terminal is free. `--wait` and `--debug` skip all this.
+//! window is up, and then exits so the terminal is free. `--wait` and `--verbose` skip all this.
 
 /// Set in the background copy, so it knows it must report back and detach.
 #[cfg(unix)]
