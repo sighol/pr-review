@@ -67,6 +67,91 @@ textarea {
   color: var(--muted);
   font-size: 12px;
 }
+.diff-layout {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+}
+.file-tree {
+  flex: 0 0 260px;
+  width: 260px;
+  overflow-y: auto;
+  padding: 8px 0;
+  border-right: 1px solid var(--border);
+}
+.diff-main {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+}
+.ft-folder,
+.ft-file {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  background: none;
+  border: 0;
+  color: inherit;
+  text-align: left;
+  padding: 3px 10px 3px 0;
+  cursor: pointer;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ft-folder {
+  color: var(--muted);
+  font-weight: 600;
+}
+.ft-folder:hover,
+.ft-file:hover {
+  background: var(--bg-subtle);
+}
+.ft-file.current {
+  background: rgba(56, 139, 253, 0.15);
+  color: var(--fg);
+}
+.ft-chevron {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin: 0 4px 0 2px;
+  border-right: 1.5px solid var(--muted);
+  border-bottom: 1.5px solid var(--muted);
+  transform: rotate(-45deg);
+}
+.ft-chevron.open {
+  transform: rotate(45deg);
+}
+.ft-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-left: 2px;
+  border-radius: 50%;
+}
+.ft-dot.approved {
+  background: #3fb950;
+}
+.ft-dot.unapproved {
+  background: #d29922;
+}
+.ft-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ft-count {
+  flex: none;
+  color: var(--muted);
+  font-size: 11px;
+}
+.ft-count.attention {
+  color: var(--fg);
+  font-weight: 600;
+}
 .range-banner {
   color: var(--muted);
   font-size: 13px;
