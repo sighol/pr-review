@@ -7,9 +7,11 @@
   --muted: #7d8590;
   --del-line: rgba(248, 81, 73, 0.13);
   --del-word: rgba(248, 81, 73, 0.45);
+  --del-word-soft: rgba(248, 81, 73, 0.28);
   --del-gutter: rgba(248, 81, 73, 0.25);
   --add-line: rgba(46, 160, 67, 0.15);
   --add-word: rgba(46, 160, 67, 0.45);
+  --add-word-soft: rgba(46, 160, 67, 0.25);
   --add-gutter: rgba(46, 160, 67, 0.3);
   --select: rgba(56, 139, 253, 0.35);
   --accent: #2f81f7;
@@ -327,7 +329,7 @@ textarea {
 
 .code mark {
   background: transparent;
-  border-radius: 3px;
+  border-radius: 0;
 }
 
 .noeol {
@@ -341,7 +343,7 @@ textarea {
   background: var(--del-line);
 }
 .del.code mark {
-  background: var(--del-word);
+  background: var(--del-word-soft);
 }
 .add.gutter {
   background: var(--add-gutter);
@@ -350,7 +352,7 @@ textarea {
   background: var(--add-line);
 }
 .add.code mark {
-  background: var(--add-word);
+  background: var(--add-word-soft);
 }
 
 .empty.gutter,
