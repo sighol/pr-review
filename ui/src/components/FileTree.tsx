@@ -20,11 +20,13 @@ export function FileTree({
   currentFile,
   onSelect,
   statusFor,
+  width,
 }: {
   paths: readonly string[];
   currentFile: string;
   onSelect: (path: string) => void;
   statusFor: (path: string) => FileStatus;
+  width: number;
 }) {
   const tree = useMemo(() => buildFileTree(paths), [paths]);
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
@@ -82,7 +84,7 @@ export function FileTree({
   };
 
   return (
-    <nav className="file-tree">
+    <nav className="file-tree" style={{ width }}>
       {tree.map((n) => renderNode(n, 0))}
       {menu && (
         <>

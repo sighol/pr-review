@@ -73,11 +73,21 @@ textarea {
   min-height: 0;
 }
 .file-tree {
-  flex: 0 0 260px;
-  width: 260px;
+  flex: none;
   overflow-y: auto;
   padding: 8px 0;
+}
+.file-tree-resize {
+  flex: none;
+  width: 5px;
+  margin-left: -2px;
+  cursor: col-resize;
   border-right: 1px solid var(--border);
+  background: transparent;
+}
+.file-tree-resize:hover,
+.file-tree-resize:active {
+  border-right-color: var(--accent);
 }
 .diff-main {
   flex: 1;

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { DiffView } from "../components/DiffView";
 import { DiscussionNav } from "../components/DiscussionNav";
 import { FileTree, type FileStatus } from "../components/FileTree";
@@ -8,6 +8,9 @@ import { rangeKey, useRangeData } from "../lib/data";
 import { commentable, placeable, rangeLabel, sameRange, stateOf, threadPlacement } from "../lib/range";
 import { isResolved } from "../lib/threads";
 import { threadLine, useStore } from "../store";
+
+const MIN_SIDEBAR_WIDTH = 160;
+const MAX_SIDEBAR_WIDTH = 560;
 
 export function DiffTab() {
   const {
@@ -27,6 +30,7 @@ export function DiffTab() {
     jumpTo,
   } = useStore();
   const [wholeFile, setWholeFile] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(260);
   const file = fileByName.get(currentFile);
   const range = useMemo(() => (file ? rangeFor(file) : undefined), [file, rangeFor]);
   const data = useRangeData(file, range);
@@ -43,6 +47,21 @@ export function DiffTab() {
   const hidden = threads.filter(
     (t) => t.file === file.path && placeable(t) && threadPlacement(t, range, file.changedBy) === null,
   );
+
+  const startSidebarResize = (e: ReactPointerEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = sidebarWidth;
+    const onMove = (ev: PointerEvent) => {
+      setSidebarWidth(Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, startWidth + (ev.clientX - startX))));
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  };
 
   const statusFor = (path: string): FileStatus => {
     const f = fileByName.get(path)!;
@@ -69,7 +88,9 @@ export function DiffTab() {
         currentFile={currentFile}
         onSelect={setCurrentFile}
         statusFor={statusFor}
+        width={sidebarWidth}
       />
+      <div className="file-tree-resize" onPointerDown={startSidebarResize} />
       <div className="diff-main">
         <div className="toolbar">
           <div className="toolbar-row">
