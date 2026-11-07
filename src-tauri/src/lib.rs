@@ -49,7 +49,7 @@ async fn logged<T>(name: &str, work: impl Future<Output = anyhow::Result<T>>) ->
             Ok(value)
         }
         Err(e) => {
-            warn!("{name} failed after {:?}: {e:#}", started.elapsed());
+            err!("{name} failed after {:?}: {e:#}", started.elapsed());
             Err(format!("{e:#}"))
         }
     }
@@ -98,12 +98,12 @@ fn frontend_log(level: String, message: String) {
 #[tauri::command]
 async fn file_text(
     state: State<'_, AppState>,
-    oid: String,
+    commit_oid: String,
     path: String,
 ) -> Result<String, String> {
     logged(
         &format!("file_text {path}"),
-        git::file_text(&state.repo, &oid, &path),
+        git::file_text(&state.repo, &commit_oid, &path),
     )
     .await
 }
@@ -111,13 +111,13 @@ async fn file_text(
 #[tauri::command]
 async fn file_diff(
     state: State<'_, AppState>,
-    from_oid: String,
-    to_oid: String,
+    from_commit_oid: String,
+    to_commit_oid: String,
     path: String,
 ) -> Result<String, String> {
     logged(
         &format!("file_diff {path}"),
-        git::file_diff(&state.repo, &from_oid, &to_oid, &path),
+        git::file_diff(&state.repo, &from_commit_oid, &to_commit_oid, &path),
     )
     .await
 }
