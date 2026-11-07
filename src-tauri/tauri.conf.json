@@ -10,7 +10,7 @@
     "frontendDist": "../ui/dist"
   },
   "app": {
-    "windows": [{ "label": "main", "title": "pr-review", "width": 1400, "height": 900 }],
+    "windows": [{ "label": "main", "title": "pr-review", "width": 1600, "height": 900 }],
     "security": { "csp": null }
   },
   "bundle": {
