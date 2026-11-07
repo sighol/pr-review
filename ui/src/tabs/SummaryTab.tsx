@@ -1,6 +1,7 @@
 import { FileMatrix } from "../components/FileMatrix";
 import { Markdown } from "../components/Markdown";
 import { ThreadBox } from "../components/ThreadBox";
+import { authorColor } from "../lib/authorColor";
 import { CONVERSATION_ID, isResolved, newCount, sortThreads, type PrStatus } from "../lib/threads";
 import { threadLine, useStore } from "../store";
 
@@ -32,7 +33,7 @@ export function SummaryTab() {
         {pr.title} <span className="pr-number">#{pr.number}</span>
       </h1>
       <p className="muted">
-        opened by <strong>{pr.author}</strong> ·{" "}
+        opened by <strong style={{ color: authorColor(pr.author) }}>{pr.author}</strong> ·{" "}
         <span className={`pr-state pr-state-${pr.status}`}>{STATUS_LABEL[pr.status]}</span>
       </p>
       <section className="card">

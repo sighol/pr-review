@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { authorColor } from "../lib/authorColor";
 import { langFor } from "../lib/highlight";
 import { asOfRange, rangeLabel } from "../lib/range";
 import { firstNewIndex, isResolved, newCount, replacedLines, type FakeThread } from "../lib/threads";
@@ -89,7 +90,7 @@ export function ThreadBox({ thread, expanded = false, preview = false, outdatedA
             <div className={`thread-comment${isNew ? " new" : ""}`}>
               <div className="comment-head">
                 <span>
-                  <strong>{c.author}</strong> ·{" "}
+                  <strong style={{ color: authorColor(c.author) }}>{c.author}</strong> ·{" "}
                   {c.url ? (
                     <ExternalLink
                       href={c.url}
