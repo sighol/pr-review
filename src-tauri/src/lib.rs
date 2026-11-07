@@ -45,7 +45,7 @@ async fn logged<T>(name: &str, work: impl Future<Output = anyhow::Result<T>>) ->
     let started = Instant::now();
     match work.await {
         Ok(value) => {
-            debug!("{name} ok in {:?}", started.elapsed());
+            debug!("{name} OK in {:?}", started.elapsed());
             Ok(value)
         }
         Err(e) => {
