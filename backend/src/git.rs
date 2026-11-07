@@ -281,7 +281,18 @@ pub struct PrRange {
 /// Fetches the PR head (`refs/pull/N/head`, which also exists for fork PRs) and its base
 /// branch from `origin`, then resolves the range. The head is stored under
 /// `refs/pr-review/N/head` so it never touches the user's branches.
-pub async fn fetch_pr(repo: &Path, number: u64, base_ref_name: &str) -> Result<PrRange> {
+///
+/// `merge_commit` is GitHub's merge commit for an already-merged PR, if any. Ordinarily
+/// merge-base(base, head) is the fork point, but for a merged (non-rebase) PR whose base branch
+/// has since advanced past the merge, head is already an ancestor of base and merge-base
+/// degenerates to head itself (an empty diff). When that happens, `merge_commit`'s first parent
+/// - the base branch's tip just before this PR's merge - is used as the base instead.
+pub async fn fetch_pr(
+    repo: &Path,
+    number: u64,
+    base_ref_name: &str,
+    merge_commit: Option<&str>,
+) -> Result<PrRange> {
     let head_ref = format!("refs/pr-review/{number}/head");
     let base_ref = format!("refs/remotes/origin/{base_ref_name}");
     git(
@@ -296,7 +307,18 @@ pub async fn fetch_pr(repo: &Path, number: u64, base_ref_name: &str) -> Result<P
     )
     .await?;
     let head = resolve_commit(repo, &head_ref).await?;
-    let base = merge_base(repo, &base_ref, &head).await?;
+    let mut base = merge_base(repo, &base_ref, &head).await?;
+    if base == head {
+        if let Some(mc) = merge_commit {
+            match resolve_commit(repo, &format!("{mc}^1")).await {
+                Ok(parent) => base = parent,
+                Err(e) => warn!(
+                    "PR #{number} looks merged and already in {base_ref_name}, but could not resolve \
+                     the merge commit {mc}'s parent, so the diff will be empty: {e}"
+                ),
+            }
+        }
+    }
     Ok(PrRange { base, head })
 }
 
@@ -603,7 +625,7 @@ mod tests {
         remote.commit("main moves on", &[("b.txt", Some("b\n"))]);
 
         let local = TestRepo::clone_of(&remote);
-        let range = fetch_pr(local.path(), 7, "main").await.unwrap();
+        let range = fetch_pr(local.path(), 7, "main", None).await.unwrap();
         assert_eq!(
             range,
             PrRange {
@@ -623,9 +645,39 @@ mod tests {
         remote.git(&["checkout", "-q", "feature"]);
         let second = remote.commit("more pr work", &[("a.txt", Some("3\n"))]);
         remote.git(&["update-ref", "refs/pull/7/head", &second]);
-        let range = fetch_pr(local.path(), 7, "main").await.unwrap();
+        let range = fetch_pr(local.path(), 7, "main", None).await.unwrap();
         assert_eq!(range, PrRange { base, head: second });
 
-        assert!(fetch_pr(local.path(), 8, "main").await.is_err());
+        assert!(fetch_pr(local.path(), 8, "main", None).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn fetch_pr_falls_back_to_the_merge_commits_parent_once_base_has_absorbed_the_pr() {
+        let remote = TestRepo::new();
+        remote.git(&["symbolic-ref", "HEAD", "refs/heads/main"]);
+        let base = remote.commit("base", &[("a.txt", Some("1\n"))]);
+        remote.git(&["checkout", "-q", "-b", "feature"]);
+        let head = remote.commit("pr work", &[("a.txt", Some("2\n"))]);
+        remote.git(&["update-ref", "refs/pull/9/head", &head]);
+        // Merge the PR branch into main with a real merge commit, as GitHub would.
+        remote.git(&["checkout", "-q", "main"]);
+        remote.git(&["merge", "--no-ff", "-q", "-m", "merge pr", "feature"]);
+        let merge_commit = remote.git(&["rev-parse", "HEAD"]);
+
+        let local = TestRepo::clone_of(&remote);
+        // Without the merge commit, merge-base(main, head) degenerates to head: an empty diff.
+        let degenerate = fetch_pr(local.path(), 9, "main", None).await.unwrap();
+        assert_eq!(
+            degenerate,
+            PrRange {
+                base: head.clone(),
+                head: head.clone()
+            }
+        );
+
+        let range = fetch_pr(local.path(), 9, "main", Some(&merge_commit))
+            .await
+            .unwrap();
+        assert_eq!(range, PrRange { base, head });
     }
 }

@@ -34,7 +34,12 @@ pub async fn open_pr(cwd: &Path, number: u64) -> Result<OpenedPr> {
         info.base_ref_name
     );
     let (range, (raw_threads, conversation)) = tokio::try_join!(
-        git::fetch_pr(&repo, number, &info.base_ref_name),
+        git::fetch_pr(
+            &repo,
+            number,
+            &info.base_ref_name,
+            info.merge_commit.as_deref()
+        ),
         github::fetch_discussion(&owner, &name, number)
     )?;
     info!(

@@ -54,6 +54,11 @@ fn pr_status(state: &str, is_draft: bool) -> PrStatus {
 pub struct PrInfo {
     pub meta: PrMeta,
     pub base_ref_name: String,
+    /// The commit GitHub merged this PR with, when it has been merged. Its first parent is the
+    /// base branch's tip just before the merge, which `git::fetch_pr` falls back to when the
+    /// base branch has since moved past the merge (so merge-base(base, head) degenerates to
+    /// head).
+    pub merge_commit: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -68,6 +73,13 @@ struct PrViewJson {
     is_draft: bool,
     #[serde(default)]
     url: String,
+    #[serde(default)]
+    merge_commit: Option<MergeCommitJson>,
+}
+
+#[derive(Deserialize)]
+struct MergeCommitJson {
+    oid: String,
 }
 
 #[derive(Deserialize)]
@@ -93,6 +105,7 @@ fn parse_pr_view(json: &[u8]) -> Result<PrInfo> {
             url: v.url,
         },
         base_ref_name: v.base_ref_name,
+        merge_commit: v.merge_commit.map(|m| m.oid),
     })
 }
 
@@ -107,7 +120,7 @@ pub async fn pr_view(owner: &str, repo: &str, number: u64) -> Result<PrInfo> {
             "--repo",
             &format!("{owner}/{repo}"),
             "--json",
-            "number,title,body,author,baseRefName,state,isDraft,url",
+            "number,title,body,author,baseRefName,state,isDraft,url,mergeCommit",
         ])
         .output()
         .await
@@ -545,6 +558,7 @@ mod tests {
                     url: "https://github.com/o/r/pull/13486".into(),
                 },
                 base_ref_name: "master".into(),
+                merge_commit: None,
             }
         );
     }
@@ -571,6 +585,15 @@ mod tests {
     fn closed_pr_status() {
         let json = br#"{"number":1,"title":"t","body":"","author":null,"baseRefName":"main","state":"CLOSED","isDraft":false}"#;
         assert_eq!(parse_pr_view(json).unwrap().meta.status, PrStatus::Closed);
+    }
+
+    #[test]
+    fn merged_pr_carries_its_merge_commit() {
+        let json = br#"{"number":1,"title":"t","body":"","author":null,"baseRefName":"main","state":"MERGED","isDraft":false,"mergeCommit":{"oid":"abc123"}}"#;
+        assert_eq!(
+            parse_pr_view(json).unwrap().merge_commit,
+            Some("abc123".into())
+        );
     }
 
     #[test]
