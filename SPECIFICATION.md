@@ -3,37 +3,7 @@
 ## Problem Statement
 
 GitHub's PR review model has a critical gap: there's no way to track approval per-commit. You can only approve a whole PR. When a PR has multiple commits, you lose track of which files you've reviewed at which commits.
-
-This tool solves this problem: **track which files you've approved at which commits**.
-
-## Solution Overview
-
-An interactive terminal CLI that lets you:
-1. Browse PR files in a grid showing approval status per commit
-2. View colored diffs for any file
-3. Mark files as approved through specific commits
-4. Persist state in SQLite
-
-The key insight: **approval is "through" a commit**, meaning if you approve file X at commit 5, you've also approved commits 0-4 for that file.
-
----
-
-## UX Workflow
-
-### The GRID
-
-The main tool for showing the state of approval for the PR is the GRID:
-
-```
-FILE                   | APPROVAL
------------------------|---------
-     path/to/file/A      AAAAA
-l/a/s/k/path/file/B       A  A *
-              fileB      *
-```
-
-* Each column in APPROVAL represents one commit.
-* If there are no changes for that file in the commit, show empty space ' '.
+mit, show empty space ' '.
 * If there are changes in the commit that I have not yet approved, show '*'
 * If there are changes in the commit I have approved, show 'A'
 * If the filepath name is more than 40 chars wide, use smart truncation.
