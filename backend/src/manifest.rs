@@ -88,7 +88,7 @@ pub async fn build_manifest(repo: &Path, base_rev: &str, head_rev: &str) -> Resu
     }
 
     let last_commit = commits.len();
-    let files = stats
+    let mut files: Vec<ManifestFile> = stats
         .into_iter()
         .map(|(path, stat)| {
             let mut touched_by = changed_by.remove(&path).unwrap_or_default();
@@ -116,6 +116,9 @@ pub async fn build_manifest(repo: &Path, base_rev: &str, head_rev: &str) -> Resu
             }
         })
         .collect();
+    // `stats` is a BTreeMap, so this is case-sensitive byte order; re-sort case-insensitively
+    // (e.g. "LICENSE" before "lib/foo.rs", not after).
+    files.sort_by(|a, b| a.path.to_lowercase().cmp(&b.path.to_lowercase()));
 
     let commits = commits
         .into_iter()
@@ -180,13 +183,14 @@ mod tests {
         );
 
         let m = build_manifest(repo.path(), &base, "HEAD").await.unwrap();
+        // Sorted case-insensitively, so "keep.kt" comes before "New.kt" despite the capital N.
         let paths: Vec<_> = m.files.iter().map(|f| f.path.as_str()).collect();
-        assert_eq!(paths, ["New.kt", "keep.kt"]);
-        let renamed = &m.files[0];
+        assert_eq!(paths, ["keep.kt", "New.kt"]);
+        let renamed = &m.files[1];
         assert_eq!(renamed.old_path.as_deref(), Some("Old.kt"));
         assert_eq!(renamed.changed_by, vec![1, 3]);
         assert_eq!((renamed.added, renamed.removed), (1, 1));
-        assert_eq!(m.files[1].old_path, None);
+        assert_eq!(m.files[0].old_path, None);
     }
 
     #[tokio::test]

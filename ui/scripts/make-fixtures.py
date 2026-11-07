@@ -62,7 +62,7 @@ for entry in os.listdir(out_root):
 
 files = []
 n_diffs = 0
-for path in sorted(numstat):
+for path in sorted(numstat, key=str.lower):
     touching = set(git("rev-list", f"{base_oid}..{head_oid}", "--", path).split())
     changed_by = [c["n"] for c in commits if c["oid"] in touching]
     states = [0] + changed_by
