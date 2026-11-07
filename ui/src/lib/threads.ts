@@ -118,6 +118,8 @@ export interface PrInfo {
   author: string;
   body: string;
   status: PrStatus;
+  /** The PR's page on GitHub; empty when unknown. */
+  url: string;
 }
 
 /** The fake PR shown when running in a browser against fixtures. */
@@ -126,6 +128,7 @@ export const PR: PrInfo = {
   title: "Thread review improvements, PR title in the grid, and repo discovery",
   author: "sigurd",
   status: "merged",
+  url: "https://github.com/sighol/pr-review/pull/128",
   body: `## What
 
 A batch of quality-of-life changes to \`pr-review\`, mostly around the \`threads\` flow.

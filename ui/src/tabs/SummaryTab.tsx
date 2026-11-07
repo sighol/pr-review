@@ -1,3 +1,4 @@
+import { ExternalLink } from "../components/ExternalLink";
 import { FileMatrix } from "../components/FileMatrix";
 import { Markdown } from "../components/Markdown";
 import { ThreadBox } from "../components/ThreadBox";
@@ -35,6 +36,14 @@ export function SummaryTab() {
       <p className="muted">
         opened by <strong style={{ color: authorColor(pr.author) }}>{pr.author}</strong> ·{" "}
         <span className={`pr-state pr-state-${pr.status}`}>{STATUS_LABEL[pr.status]}</span>
+        {pr.url && (
+          <>
+            {" · "}
+            <ExternalLink className="pr-link" href={pr.url}>
+              Go to GitHub
+            </ExternalLink>
+          </>
+        )}
       </p>
       <section className="card">
         <Markdown text={pr.body} />

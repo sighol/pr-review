@@ -1072,12 +1072,14 @@ textarea {
   font-size: 12px;
 }
 .markdown a,
-.comment-head a {
+.comment-head a,
+.pr-link {
   color: var(--accent);
   text-decoration: none;
 }
 .markdown a:hover,
-.comment-head a:hover {
+.comment-head a:hover,
+.pr-link:hover {
   text-decoration: underline;
 }
 .nav-group {

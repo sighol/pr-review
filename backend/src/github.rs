@@ -27,6 +27,8 @@ pub struct PrMeta {
     pub author: String,
     pub body: String,
     pub status: PrStatus,
+    /// The PR's page on GitHub.
+    pub url: String,
 }
 
 /// Where the PR stands on GitHub.
@@ -64,6 +66,8 @@ struct PrViewJson {
     base_ref_name: String,
     state: String,
     is_draft: bool,
+    #[serde(default)]
+    url: String,
 }
 
 #[derive(Deserialize)]
@@ -86,6 +90,7 @@ fn parse_pr_view(json: &[u8]) -> Result<PrInfo> {
             body: v.body,
             author: ghost_if_none(v.author),
             status: pr_status(&v.state, v.is_draft),
+            url: v.url,
         },
         base_ref_name: v.base_ref_name,
     })
@@ -102,7 +107,7 @@ pub async fn pr_view(owner: &str, repo: &str, number: u64) -> Result<PrInfo> {
             "--repo",
             &format!("{owner}/{repo}"),
             "--json",
-            "number,title,body,author,baseRefName,state,isDraft",
+            "number,title,body,author,baseRefName,state,isDraft,url",
         ])
         .output()
         .await
@@ -527,7 +532,7 @@ mod tests {
 
     #[test]
     fn parses_gh_pr_view_output() {
-        let json = br#"{"number":13486,"title":"Fix it","body":"Some **markdown**","author":{"login":"sigurd","name":"S"},"baseRefName":"master","state":"OPEN","isDraft":false}"#;
+        let json = br#"{"number":13486,"title":"Fix it","body":"Some **markdown**","author":{"login":"sigurd","name":"S"},"baseRefName":"master","state":"OPEN","isDraft":false,"url":"https://github.com/o/r/pull/13486"}"#;
         assert_eq!(
             parse_pr_view(json).unwrap(),
             PrInfo {
@@ -537,6 +542,7 @@ mod tests {
                     author: "sigurd".into(),
                     body: "Some **markdown**".into(),
                     status: PrStatus::Open,
+                    url: "https://github.com/o/r/pull/13486".into(),
                 },
                 base_ref_name: "master".into(),
             }
