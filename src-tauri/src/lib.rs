@@ -210,6 +210,33 @@ async fn set_review_body(state: State<'_, AppState>, body: String) -> Result<(),
     logged("set_review_body", state.db.set_review_body(&body)).await
 }
 
+/// WebKitGTK takes its pixel ratio from GTK's `gtk-xft-dpi`, whose default is -1. When the desktop
+/// has not supplied it yet (it can arrive late, or never, outside a full desktop session) the page
+/// gets a negative devicePixelRatio and a nonsense viewport: tiny text and an empty window. This
+/// must run before the webview is created, so it sets 96 dpi when the value is not positive.
+#[cfg(target_os = "linux")]
+fn ensure_gtk_dpi() {
+    use gtk::prelude::*;
+
+    if let Err(e) = gtk::init() {
+        warn!("could not initialize GTK to check the screen DPI: {e}");
+        return;
+    }
+    let Some(settings) = gtk::Settings::default() else {
+        warn!("GTK has no default settings; cannot check the screen DPI");
+        return;
+    };
+    let xft_dpi = settings.property::<i32>("gtk-xft-dpi");
+    if xft_dpi > 0 {
+        info!("GTK screen DPI: {:.1}", f64::from(xft_dpi) / 1024.0);
+    } else {
+        warn!(
+            "GTK has no screen DPI (gtk-xft-dpi is {xft_dpi}); using 96 so the page is not laid out with a negative pixel ratio"
+        );
+        settings.set_property("gtk-xft-dpi", 96 * 1024_i32);
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     init_logging();
@@ -236,6 +263,9 @@ pub fn run() {
         anyhow::Ok((opened, db))
     })
     .unwrap_or_else(|e| exit_with(&format!("error: {e:#}"), 1));
+
+    #[cfg(target_os = "linux")]
+    ensure_gtk_dpi();
 
     info!("starting the window after {:?}", started.elapsed());
     tauri::Builder::default()
