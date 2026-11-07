@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::Instant;
 
+use clap::Parser;
 use pr_review_core::db::{Db, Draft, SavedState};
 use pr_review_core::manifest::Manifest;
 use pr_review_core::review::SubmitResult;
@@ -14,7 +15,27 @@ use tracing::{debug, info, warn};
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::time::uptime;
 
-const USAGE: &str = "usage: pr-review <PR number>\n\nRun it inside a clone of the GitHub repository. Needs `git` and an authenticated `gh`.\n\nLogs go to stderr. PR_REVIEW_LOG=debug shows every git/gh call and command; PR_REVIEW_LOG also accepts full tracing filters.";
+/// Review a GitHub pull request side-by-side. Needs `git` and an authenticated `gh`.
+///
+/// Logs go to stderr. PR_REVIEW_LOG=debug shows every git/gh call and command; PR_REVIEW_LOG
+/// also accepts full tracing filters.
+#[derive(Parser)]
+#[command(name = "pr-review")]
+struct Args {
+    /// PR number (a leading # is ignored)
+    #[arg(value_parser = parse_pr_number)]
+    number: u64,
+
+    /// Repository to review, defaults to the current directory (like git's -C)
+    #[arg(short = 'C', long = "repository", value_name = "PATH")]
+    repository: Option<PathBuf>,
+}
+
+fn parse_pr_number(s: &str) -> Result<u64, String> {
+    s.trim_start_matches('#')
+        .parse()
+        .map_err(|_| format!("'{s}' is not a PR number"))
+}
 
 struct AppState {
     repo: PathBuf,
@@ -56,18 +77,6 @@ async fn logged<T>(name: &str, work: impl Future<Output = anyhow::Result<T>>) ->
             Err(format!("{e:#}"))
         }
     }
-}
-
-fn parse_args(mut args: impl Iterator<Item = String>) -> Result<u64, String> {
-    let (Some(arg), None) = (args.next(), args.next()) else {
-        return Err(USAGE.to_string());
-    };
-    if arg == "-h" || arg == "--help" {
-        return Err(USAGE.to_string());
-    }
-    arg.trim_start_matches('#')
-        .parse()
-        .map_err(|_| format!("'{arg}' is not a PR number\n\n{USAGE}"))
 }
 
 fn exit_with(message: &str, code: i32) -> ! {
@@ -378,8 +387,12 @@ fn ensure_gtk_dpi() {
 pub fn run() {
     init_logging();
     let started = Instant::now();
-    let number = parse_args(std::env::args().skip(1)).unwrap_or_else(|msg| exit_with(&msg, 2));
-    let cwd = std::env::current_dir().unwrap_or_else(|e| exit_with(&format!("error: {e}"), 1));
+    let args = Args::parse();
+    let number = args.number;
+    let cwd = match args.repository {
+        Some(repository) => repository,
+        None => std::env::current_dir().unwrap_or_else(|e| exit_with(&format!("error: {e}"), 1)),
+    };
     info!(
         "pr-review {} opening PR #{number} from {}",
         env!("CARGO_PKG_VERSION"),
