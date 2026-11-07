@@ -86,8 +86,8 @@ fn exit_with(message: &str, code: i32) -> ! {
 
 fn window_title(repo: &str, number: u64, pr_title: Option<&str>) -> String {
     match pr_title {
-        Some(t) => format!("Review {repo} #{number} {t}"),
-        None => format!("Review {repo} #{number}"),
+        Some(t) => format!("{repo} #{number} {t}"),
+        None => format!("{repo} #{number}"),
     }
 }
 
