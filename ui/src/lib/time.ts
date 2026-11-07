@@ -14,3 +14,10 @@ export function relativeTime(iso: string, now: number): string {
   if (days < 30) return plural(days, "day");
   return new Date(then).toISOString().slice(0, 10);
 }
+
+/** A human-readable date and time in the viewer's local timezone, e.g. "Feb 1, 2026, 3:04 PM". */
+export function fullDateTime(iso: string): string {
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) return iso;
+  return new Date(then).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+}

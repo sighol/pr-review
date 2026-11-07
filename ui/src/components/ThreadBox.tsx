@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { langFor } from "../lib/highlight";
 import { asOfRange, rangeLabel, sameRange } from "../lib/range";
 import { firstNewIndex, isResolved, newCount, replacedLines, type FakeThread } from "../lib/threads";
+import { fullDateTime } from "../lib/time";
 import { useStore } from "../store";
 import { ExternalLink } from "./ExternalLink";
 import { Markdown } from "./Markdown";
@@ -93,7 +94,10 @@ export function ThreadBox({ thread, expanded = false, preview = false, previewAl
                 <span>
                   <strong>{c.author}</strong> ·{" "}
                   {c.url ? (
-                    <ExternalLink href={c.url} title="Open this comment on GitHub">
+                    <ExternalLink
+                      href={c.url}
+                      title={c.createdAt ? fullDateTime(c.createdAt) : "Open this comment on GitHub"}
+                    >
                       {c.when}
                     </ExternalLink>
                   ) : (

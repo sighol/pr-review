@@ -5,6 +5,8 @@ export interface FakeComment {
   id: string;
   author: string;
   when: string;
+  /** Raw ISO timestamp `when` was formatted from; the fake comments have none. */
+  createdAt?: string;
   body: string;
   /** The comment on github.com; the fake comments have none. */
   url?: string;
@@ -61,6 +63,7 @@ export function threadFromJson(j: ThreadJson, now: number): FakeThread {
       id: c.id,
       author: c.author,
       when: relativeTime(c.createdAt, now),
+      createdAt: c.createdAt,
       body: c.body,
       url: c.url,
     })),
