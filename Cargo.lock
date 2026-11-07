@@ -2900,6 +2900,7 @@ name = "pr-review-app"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "gtk",
  "pr-review-core",
  "tauri",
  "tauri-build",

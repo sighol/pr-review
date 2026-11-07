@@ -61,16 +61,16 @@ export function DiscussionNav() {
   return (
     <div className="nav-group" role="group" aria-label="Discussion navigation">
       <button disabled={!anyNavigable} title="Previous discussion (p)" onClick={() => go(-1, "any")}>
-        ◀ Discussion
+        ◀&nbsp;Discussion
       </button>
       <button disabled={!anyNavigable} title="Next discussion (n)" onClick={() => go(1, "any")}>
-        Discussion ▶
+        Discussion&nbsp;▶
       </button>
       <button disabled={!anyOpen} title="Previous unresolved discussion (Shift+P)" onClick={() => go(-1, "unresolved")}>
-        ◀ Unresolved
+        ◀&nbsp;Unresolved
       </button>
       <button disabled={!anyOpen} title="Next unresolved discussion (Shift+N)" onClick={() => go(1, "unresolved")}>
-        Unresolved ▶
+        Unresolved&nbsp;▶
       </button>
       {notice && <span className="nav-notice">{notice}</span>}
     </div>
