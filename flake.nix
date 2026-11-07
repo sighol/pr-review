@@ -1,5 +1,5 @@
 {
-  description = "pr-review: Tauri + Rust + React dev shell";
+  description = "pr-review: a desktop app for reviewing GitHub PRs (Tauri + Rust + React)";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
@@ -9,6 +9,24 @@
       forAll = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
     in
     {
+      packages = forAll (pkgs: rec {
+        pr-review = pkgs.callPackage ./nix/package.nix { };
+        default = pr-review;
+      });
+
+      apps = forAll (pkgs: {
+        default = {
+          type = "app";
+          program = "${self.packages.${pkgs.stdenv.hostPlatform.system}.default}/bin/pr-review";
+        };
+      });
+
+      # For a NixOS or home-manager config: nixpkgs.overlays = [ pr-review.overlays.default ];
+      # and then pkgs.pr-review.
+      overlays.default = final: _prev: {
+        pr-review = final.callPackage ./nix/package.nix { };
+      };
+
       devShells = forAll (pkgs: {
         default =
           let
