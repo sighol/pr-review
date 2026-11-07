@@ -357,7 +357,7 @@ textarea {
 
 .empty.gutter,
 .empty.code {
-  background: repeating-linear-gradient(135deg, transparent 0 4px, rgba(125, 133, 144, 0.1) 4px 5px);
+  background: var(--bg-subtle);
 }
 
 .gutter.clickable {
