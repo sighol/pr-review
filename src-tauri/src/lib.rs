@@ -285,53 +285,6 @@ async fn set_review_body(state: State<'_, AppState>, body: String) -> Result<(),
     logged("set_review_body", state.db.set_review_body(&body)).await
 }
 
-/// Logs what decides how the webview is sized and scaled, to diagnose the occasional window
-/// where the page gets a negative pixel ratio (see "Logging and diagnosing" in CLAUDE.md).
-#[cfg(target_os = "linux")]
-fn log_display_environment() {
-    use gtk::prelude::*;
-
-    for key in [
-        "XDG_SESSION_TYPE",
-        "XDG_CURRENT_DESKTOP",
-        "WAYLAND_DISPLAY",
-        "DISPLAY",
-        "GDK_BACKEND",
-        "GDK_SCALE",
-        "GDK_DPI_SCALE",
-        "GTK_USE_PORTAL",
-        "WEBKIT_DISABLE_COMPOSITING_MODE",
-        "WEBKIT_DISABLE_DMABUF_RENDERER",
-    ] {
-        info!(
-            "env {key}={}",
-            std::env::var(key).unwrap_or_else(|_| "<unset>".into())
-        );
-    }
-    let data_dirs = std::env::var("XDG_DATA_DIRS").unwrap_or_default();
-    info!(
-        "XDG_DATA_DIRS has {} entries",
-        data_dirs.split(':').filter(|d| !d.is_empty()).count()
-    );
-
-    if let Some(screen) = gtk::gdk::Screen::default() {
-        info!("GDK screen resolution: {}", screen.resolution());
-    }
-    if let Some(display) = gtk::gdk::Display::default() {
-        for i in 0..display.n_monitors() {
-            if let Some(monitor) = display.monitor(i) {
-                let g = monitor.geometry();
-                info!(
-                    "monitor {i}: {}x{} at scale factor {}",
-                    g.width(),
-                    g.height(),
-                    monitor.scale_factor()
-                );
-            }
-        }
-    }
-}
-
 /// WebKitGTK derives the page's devicePixelRatio from GDK's screen resolution, which is -1 until
 /// something sets it. On KDE/Wayland it was observed to stay -1 while `gtk-xft-dpi` was a fine 96:
 /// the page then got a ratio of -1/96 and a negative window size (tiny text, empty window). So,
@@ -345,7 +298,6 @@ fn ensure_gtk_dpi() {
         warn!("could not initialize GTK to check the screen DPI: {e}");
         return;
     }
-    log_display_environment();
 
     let mut xft_dpi = -1;
     if let Some(settings) = gtk::Settings::default() {
