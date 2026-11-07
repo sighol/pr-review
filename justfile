@@ -14,6 +14,13 @@ test-ui:
 run-dev:
     cargo tauri dev -- -- 3
 
+# Builds with Tauri's bundler and installs what it would put in the .deb: the binary in
+# ~/.cargo/bin, and the desktop entry and icons in ~/.local/share (so Wayland shows the app's icon).
 install:
-    cargo tauri build
+    rm -rf target/release/bundle/deb
+    cargo tauri build --bundles deb
     cp target/release/pr-review ~/.cargo/bin/
+    mkdir -p ~/.local/share
+    cp -r target/release/bundle/deb/*/data/usr/share/. ~/.local/share/
+    -gtk-update-icon-cache -f -t ~/.local/share/icons/hicolor
+    -update-desktop-database ~/.local/share/applications
