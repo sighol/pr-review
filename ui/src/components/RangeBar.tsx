@@ -30,7 +30,7 @@ export function RangeBar({ commits, changedBy, approved, range, onChange }: Prop
             onPointerDown={start(c.n)}
           >
             <span className="rb-n">{c.n}</span>
-            <span className="rb-glyph">{status === "approved" ? "✓" : status === "unapproved" ? "●" : ""}</span>
+            <span className="rb-glyph">{status !== "none" && <span className={`status-dot ${status}`} />}</span>
           </span>
         );
       })}

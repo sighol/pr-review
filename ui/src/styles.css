@@ -135,18 +135,21 @@ textarea {
 .ft-chevron.open {
   transform: rotate(45deg);
 }
-.ft-dot {
+.status-dot {
+  display: inline-block;
   flex: none;
   width: 8px;
   height: 8px;
-  margin-left: 2px;
   border-radius: 50%;
 }
-.ft-dot.approved {
+.status-dot.approved {
   background: #3fb950;
 }
-.ft-dot.unapproved {
+.status-dot.unapproved {
   background: #d29922;
+}
+.ft-file .status-dot {
+  margin-left: 2px;
 }
 .ft-name {
   flex: 1;
@@ -200,6 +203,9 @@ textarea {
   color: #d29922;
 }
 .action.approved {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   background: transparent;
   border-color: #2ea043;
   color: #3fb950;
@@ -250,9 +256,9 @@ textarea {
 .mx-dir {
   color: var(--muted);
 }
-.mx-state.done {
-  color: #3fb950;
-  font-weight: 700;
+.mx-state {
+  display: flex;
+  justify-content: center;
 }
 .mx-stat .add {
   color: #3fb950;
@@ -265,13 +271,6 @@ textarea {
 }
 .mx-cell.span {
   background: rgba(46, 160, 67, 0.18);
-}
-.mx-cell.approved {
-  color: #3fb950;
-  font-weight: 700;
-}
-.mx-cell.unapproved {
-  color: #d29922;
 }
 
 .loading {
@@ -1133,14 +1132,9 @@ textarea {
   color: var(--muted);
 }
 .rb-glyph {
-  font-size: 12px;
-}
-.rb-cell.approved .rb-glyph {
-  color: #3fb950;
-  font-weight: 700;
-}
-.rb-cell.unapproved .rb-glyph {
-  color: #d29922;
+  display: flex;
+  align-items: center;
+  height: 12px;
 }
 .rb-cell.selected {
   background: rgba(56, 139, 253, 0.3);

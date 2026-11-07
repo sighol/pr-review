@@ -118,7 +118,7 @@ export function DiffTab() {
             <span className="spacer" />
             {fully ? (
               <button className="action approved" onClick={() => unapproveFile(file)}>
-                ✓ Approved · Unapprove
+                <span className="status-dot approved" /> Approved · Unapprove
               </button>
             ) : (
               <button className="action primary" onClick={() => approveFile(file)}>

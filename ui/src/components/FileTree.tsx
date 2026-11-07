@@ -61,7 +61,7 @@ export function FileTree({
             setMenu({ path: node.path, x: e.clientX, y: e.clientY });
           }}
         >
-          <span className={`ft-dot ${s.approved ? "approved" : "unapproved"}`} />
+          <span className={`status-dot ${s.approved ? "approved" : "unapproved"}`} />
           <span className="ft-name">{node.name}</span>
           {s.total > 0 && (
             <span className={`ft-count${s.resolved < s.total ? " attention" : ""}`}>

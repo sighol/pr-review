@@ -60,7 +60,7 @@ export function FileMatrix() {
           const last = lastApproved(f.changedBy, approved);
           return (
             <button className="mx-row" key={f.path} onClick={() => setCurrentFile(f.path)}>
-              <span className={`mx-state ${fully ? "done" : ""}`}>{fully ? "✓" : ""}</span>
+              <span className="mx-state">{fully && <span className="status-dot approved" />}</span>
               <span className="mx-file">
                 <PathLabel path={f.path} />
               </span>
@@ -77,7 +77,7 @@ export function FileMatrix() {
                     data-n={c.n}
                     title={`#${c.n} ${c.short} ${c.subject}${status === "none" ? "" : ` · ${status}`}`}
                   >
-                    {status === "approved" ? "✓" : status === "unapproved" ? "●" : ""}
+                    {status !== "none" && <span className={`status-dot ${status}`} />}
                   </span>
                 );
               })}
