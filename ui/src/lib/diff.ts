@@ -122,39 +122,61 @@ export function wordRanges(oldText: string, newText: string): { old: Range[]; ne
   return { old: mergeRanges(old), new: mergeRanges(nu) };
 }
 
+export const REVEAL_CONTEXT = 3;
+
 export interface BuildOptions {
   wholeFile: boolean;
   expandedGaps: ReadonlySet<string>;
+  /** New-side line numbers to keep visible (with a few lines of context) even inside a collapsed gap. */
+  reveal?: ReadonlySet<number>;
 }
 
 export function buildRows(
   oldLines: string[],
   newLines: string[],
   hunks: Hunk[],
-  { wholeFile, expandedGaps }: BuildOptions,
+  { wholeFile, expandedGaps, reveal }: BuildOptions,
 ): Row[] {
   const rows: Row[] = [];
   let oldPos = 1;
   let newPos = 1;
 
+  const lineRow = (o: number, n: number): Row => ({
+    type: "line",
+    id: `l${o}:${n}`,
+    left: { lineNo: o, text: oldLines[o - 1] ?? "", kind: "ctx" },
+    right: { lineNo: n, text: newLines[n - 1] ?? "", kind: "ctx" },
+    hunk: -1,
+  });
+
   const emitGap = (count: number) => {
     if (count <= 0) return;
-    const id = `gap-${oldPos}`;
-    if (wholeFile || expandedGaps.has(id)) {
-      for (let k = 0; k < count; k++) {
-        const o = oldPos + k;
-        const n = newPos + k;
-        rows.push({
-          type: "line",
-          id: `l${o}:${n}`,
-          left: { lineNo: o, text: oldLines[o - 1] ?? "", kind: "ctx" },
-          right: { lineNo: n, text: newLines[n - 1] ?? "", kind: "ctx" },
-          hunk: -1,
-        });
-      }
-    } else {
-      rows.push({ type: "gap", id, oldStart: oldPos, newStart: newPos, count });
+    // Windows (offsets within the gap, [start, end)) kept visible around revealed lines.
+    const windows: [number, number][] = [];
+    for (const n of [...(reveal ?? [])].sort((a, b) => a - b)) {
+      const k = n - newPos;
+      if (k < 0 || k >= count) continue;
+      const w: [number, number] = [Math.max(0, k - REVEAL_CONTEXT), Math.min(count, k + REVEAL_CONTEXT + 1)];
+      const last = windows[windows.length - 1];
+      if (last && w[0] <= last[1]) last[1] = Math.max(last[1], w[1]);
+      else windows.push(w);
     }
+    const lines = (start: number, end: number) => {
+      for (let k = start; k < end; k++) rows.push(lineRow(oldPos + k, newPos + k));
+    };
+    const collapsible = (start: number, end: number) => {
+      if (end <= start) return;
+      const id = `gap-${oldPos + start}`;
+      if (wholeFile || expandedGaps.has(id)) lines(start, end);
+      else rows.push({ type: "gap", id, oldStart: oldPos + start, newStart: newPos + start, count: end - start });
+    };
+    let at = 0;
+    for (const [start, end] of windows) {
+      collapsible(at, start);
+      lines(start, end);
+      at = end;
+    }
+    collapsible(at, count);
   };
 
   hunks.forEach((h, hi) => {

@@ -4,7 +4,8 @@ import { DiscussionNav } from "../components/DiscussionNav";
 import { FileTree, type FileStatus } from "../components/FileTree";
 import { RangeBar } from "../components/RangeBar";
 import { isFullyApproved, latestCommit, nextUnapproved } from "../lib/approval";
-import { rangeKey, useRangeData } from "../lib/data";
+import { needsAnchor } from "../lib/anchor";
+import { rangeKey, useRangeData, useThreadAnchors } from "../lib/data";
 import { commentable, placeable, rangeLabel, sameRange, stateOf, threadPlacement } from "../lib/range";
 import { isResolved } from "../lib/threads";
 import { threadLine, useStore } from "../store";
@@ -34,6 +35,7 @@ export function DiffTab() {
   const file = fileByName.get(currentFile);
   const range = useMemo(() => (file ? rangeFor(file) : undefined), [file, rangeFor]);
   const data = useRangeData(file, range);
+  const anchors = useThreadAnchors(file, range, data, threads);
 
   if (!file || !range) return null;
 
@@ -45,7 +47,11 @@ export function DiffTab() {
   const ready = !!data && data.key === rangeKey(file, range);
   const unchanged = stateOf(file.changedBy, range.from) === stateOf(file.changedBy, range.to);
   const hidden = threads.filter(
-    (t) => t.file === file.path && placeable(t) && threadPlacement(t, range, file.changedBy) === null,
+    (t) =>
+      t.file === file.path &&
+      placeable(t) &&
+      threadPlacement(t, range, file.changedBy) === null &&
+      !(needsAnchor(t, range, file.changedBy) && (anchors === null || anchors.has(t.id))),
   );
 
   const startSidebarResize = (e: ReactPointerEvent) => {
@@ -143,7 +149,7 @@ export function DiffTab() {
         )}
         {ready && unchanged && <div className="no-changes">No changes to this file in {rangeLabel(range)}.</div>}
         {ready ? (
-          <DiffView key={data.key} file={file} data={data} range={range} wholeFile={wholeFile} />
+          <DiffView key={data.key} file={file} data={data} range={range} wholeFile={wholeFile} anchors={anchors} />
         ) : (
           <div className="loading">Loading…</div>
         )}

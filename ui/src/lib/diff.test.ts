@@ -155,3 +155,20 @@ describe("drag clamping", () => {
     expect(suggestionBlock({ side: "new", start: 1, end: 2 }, ["a", "b", "c"])).toBe("```suggestion\na\nb\n```");
   });
 });
+
+describe("buildRows reveal", () => {
+  test("keeps revealed lines and their context visible inside a collapsed gap", () => {
+    const text = Array.from({ length: 30 }, (_, i) => `l${i + 1}`);
+    const rows = buildRows(text, text, [], { wholeFile: false, expandedGaps: new Set(), reveal: new Set([15]) });
+    const shown = rows.filter((r) => r.type === "line").map((r) => (r.type === "line" ? r.right!.lineNo : 0));
+    expect(shown).toEqual([12, 13, 14, 15, 16, 17, 18]);
+    const gaps = rows.filter((r) => r.type === "gap");
+    expect(gaps.map((g) => (g.type === "gap" ? [g.newStart, g.count] : []))).toEqual([[1, 11], [19, 12]]);
+  });
+
+  test("without reveal the gap is one row", () => {
+    const text = ["a", "b", "c"];
+    const rows = buildRows(text, text, [], { wholeFile: false, expandedGaps: new Set() });
+    expect(rows).toHaveLength(1);
+  });
+});

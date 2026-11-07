@@ -16,6 +16,7 @@ import {
 import { tokenize } from "../lib/highlight";
 import type { FakeThread } from "../lib/threads";
 import type { RangeData } from "../lib/data";
+import { needsAnchor, type ThreadAnchors } from "../lib/anchor";
 import { commentable, threadPlacement, type CommitRange } from "../lib/range";
 import { useStore, type Draft, type FileData } from "../store";
 import { CommentBox } from "./CommentBox";
@@ -26,6 +27,8 @@ interface Props {
   data: RangeData;
   range: CommitRange;
   wholeFile: boolean;
+  /** Closest-match lines of outdated threads; null while they load. */
+  anchors: ThreadAnchors | null;
 }
 
 type Tokens = ThemedToken[][] | null;
@@ -36,7 +39,7 @@ interface Selection {
   hi: number;
 }
 
-export function DiffView({ file, data, range, wholeFile }: Props) {
+export function DiffView({ file, data, range, wholeFile, anchors }: Props) {
   const { threads, drafts, jump, clearJump, createDraft: storeCreateDraft } = useStore();
   const { path } = file;
   const { oldText, newText, diffText } = data;
@@ -45,9 +48,10 @@ export function DiffView({ file, data, range, wholeFile }: Props) {
   const newLines = useMemo(() => textToLines(newText), [newText]);
   const hunks = useMemo(() => parseUnifiedDiff(diffText), [diffText]);
   const [expandedGaps, setExpandedGaps] = useState<ReadonlySet<string>>(new Set());
+  const reveal = useMemo(() => new Set(anchors?.values() ?? []), [anchors]);
   const rows = useMemo(
-    () => buildRows(oldLines, newLines, hunks, { wholeFile, expandedGaps }),
-    [oldLines, newLines, hunks, wholeFile, expandedGaps],
+    () => buildRows(oldLines, newLines, hunks, { wholeFile, expandedGaps, reveal }),
+    [oldLines, newLines, hunks, wholeFile, expandedGaps, reveal],
   );
 
   const [oldTokens, setOldTokens] = useState<Tokens>(null);
@@ -131,14 +135,16 @@ export function DiffView({ file, data, range, wholeFile }: Props) {
     const m = new Map<string, number>();
     for (const t of threads) {
       if (t.file !== file.name) continue;
-      const line = threadPlacement(t, range, file.changedBy);
+      const line = threadPlacement(t, range, file.changedBy) ?? anchors?.get(t.id) ?? null;
       if (line !== null) m.set(t.id, line);
     }
     return m;
-  }, [threads, file.name, file.changedBy, range]);
+  }, [threads, file.name, file.changedBy, range, anchors]);
 
   useEffect(() => {
     if (!jump || jump.file !== file.name) return;
+    const jumped = jump.threadId ? threads.find((t) => t.id === jump.threadId) : undefined;
+    if (!anchors && jumped && needsAnchor(jumped, range, file.changedBy)) return;
     const placed = jump.threadId ? placedLine.get(jump.threadId) : jump.line;
     if (placed === undefined) {
       clearJump();
@@ -176,7 +182,7 @@ export function DiffView({ file, data, range, wholeFile }: Props) {
       setTimeout(scroll, 150);
       setTimeout(() => el?.classList.remove(cls), threadId ? 1100 : 1800);
     });
-  }, [jump, rows, rowIndexByLine, placedLine, file.name, expandGap, clearJump]);
+  }, [jump, rows, rowIndexByLine, placedLine, file.name, expandGap, clearJump, anchors, threads, range, file.changedBy]);
 
   const onCodeDown = useCallback((e: React.PointerEvent) => {
     const code = (e.target as HTMLElement).closest<HTMLElement>("[data-code-side]");
@@ -226,7 +232,7 @@ export function DiffView({ file, data, range, wholeFile }: Props) {
             )}
             {threadsByRow.get(i)?.map((t) => (
               <div className="attached" data-ri={i} data-thread-id={t.id} key={t.id}>
-                <ThreadBox thread={t} />
+                <ThreadBox thread={t} outdatedAt={anchors?.get(t.id)} />
               </div>
             ))}
             {draftsByRow.get(i)?.map((d) => (

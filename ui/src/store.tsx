@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { approveThrough } from "./lib/approval";
 import type { LineRange, Side } from "./lib/diff";
+import { needsAnchor } from "./lib/anchor";
 import {
   asOfRange,
   commentable,
@@ -278,7 +279,7 @@ export function StoreProvider({
     const current = currentRangeRef(file);
     const thread = threadOf(threads, r);
     if (thread) {
-      if (placeable(thread) && threadPlacement(thread, current, file.changedBy) === null) {
+      if (placeable(thread) && threadPlacement(thread, current, file.changedBy) === null && !needsAnchor(thread, current, file.changedBy)) {
         setRange(file.path, rangeForThread(thread, current, headN));
       }
       return;

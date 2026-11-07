@@ -13,11 +13,13 @@ interface Props {
   expanded?: boolean;
   /** Show the write/preview toggle under the reply draft (Review tab only). */
   preview?: boolean;
+  /** Set when the thread's code has changed and it is shown next to this (closest matching) line. */
+  outdatedAt?: number;
   /** Bumped by "Preview all" on the Review tab to switch the reply draft to preview mode. */
   previewAllTick?: number;
 }
 
-export function ThreadBox({ thread, expanded = false, preview = false, previewAllTick }: Props) {
+export function ThreadBox({ thread, expanded = false, preview = false, outdatedAt, previewAllTick }: Props) {
   const { resolutions, resolveThread, reopenThread, fileByName, rangeFor, viewAsOf } = useStore();
   const resolution = resolutions.get(thread.id);
   const resolved = isResolved(thread, resolution);
@@ -50,7 +52,13 @@ export function ThreadBox({ thread, expanded = false, preview = false, previewAl
   }
 
   return (
-    <div className={`comment thread ${resolved ? "is-resolved" : "is-open"}`}>
+    <div className={`comment thread ${resolved ? "is-resolved" : "is-open"}${outdatedAt !== undefined ? " is-outdated" : ""}`}>
+      {outdatedAt !== undefined && (
+        <div className="outdated-note">
+          <strong>Outdated</strong> · written on #{thread.commit} at line {thread.originalLine}; that code has changed, so
+          this is shown at the closest matching line ({outdatedAt}).
+        </div>
+      )}
       <div className="thread-head">
         <span className={`status ${resolved ? "resolved" : "open"}`}>{resolved ? "✓ Resolved" : "● Open"}</span>
         {nNew > 0 && <span className="badge-new">{nNew} new</span>}
