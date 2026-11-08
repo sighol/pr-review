@@ -389,10 +389,22 @@ async fn set_review_body(state: State<'_, AppState>, body: String) -> Result<(),
 fn ensure_gtk_dpi() {
     use gtk::prelude::*;
 
+    gtk::glib::set_prgname(Some("pr-review"));
+
     if let Err(e) = gtk::init() {
         warn!("could not initialize GTK to check the screen DPI: {e}");
         return;
     }
+
+    // GTK derives each window's default WM_CLASS/Wayland app-id from the on-disk path of the
+    // running executable when nothing overrides it, not from argv[0]. Nix's wrapGAppsHook renames
+    // the real binary to `.<name>-wrapped` (the visible binary is a wrapper script that execs it),
+    // so without this the Nix build's windows get that name instead of CARGO_CRATE_NAME and the
+    // desktop environment can't match them to pr-review.desktop for the icon. Set the X11 program
+    // class explicitly (requires GDK to already be initialized), to the same name cargo gives this
+    // binary target (which is also what the .desktop file and its install are named after), so the
+    // match works regardless of how the binary ends up being invoked.
+    gtk::gdk::set_program_class("pr-review");
 
     let mut xft_dpi = -1;
     if let Some(settings) = gtk::Settings::default() {
