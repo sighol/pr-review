@@ -34,6 +34,7 @@ export function DiffTab() {
   const [sidebarWidth, setSidebarWidth] = useState(260);
   const file = fileByName.get(currentFile);
   const range = useMemo(() => (file ? rangeFor(file) : undefined), [file, rangeFor]);
+  const wholeRange = { from: 0, to: commits.length };
   const data = useRangeData(file, range);
   const anchors = useThreadAnchors(file, range, data, threads);
 
@@ -124,6 +125,18 @@ export function DiffTab() {
               {rangeLabel(range)}
               {globalRange && sameRange(globalRange, range) ? " · all files" : ""}
             </span>
+            {!sameRange(range, wholeRange) && (
+              <a
+                className="link"
+                href="#"
+                onClick={(e) => {
+                  e.preventDefault();
+                  setRange(file.path, wholeRange);
+                }}
+              >
+                Clear
+              </a>
+            )}
           </div>
           <div className="toolbar-row">
             <span className={`hint${ok.left && ok.right ? "" : " warn"}`}>{commentHint}</span>
