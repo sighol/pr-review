@@ -1,4 +1,4 @@
-import { useMemo, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useMemo, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { DiffView } from "../components/DiffView";
 import { DiscussionNav } from "../components/DiscussionNav";
 import { FileTree, type FileStatus } from "../components/FileTree";
@@ -29,6 +29,7 @@ export function DiffTab() {
     setRange,
     globalRange,
     jumpTo,
+    tab,
   } = useStore();
   const [wholeFile, setWholeFile] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(260);
@@ -37,6 +38,26 @@ export function DiffTab() {
   const wholeRange = { from: 0, to: commits.length };
   const data = useRangeData(file, range);
   const anchors = useThreadAnchors(file, range, data, threads);
+
+  useEffect(() => {
+    if (tab !== "diff" || !file) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const el = e.target as HTMLElement | null;
+      if (el && (el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName))) return;
+      if (e.key !== "a") return;
+      e.preventDefault();
+      if (isFullyApproved(file.changedBy, approvals.get(file.path))) {
+        unapproveFile(file);
+      } else {
+        approveFile(file);
+        const next = nextUnapproved(files, approvals, file.path);
+        if (next) setCurrentFile(next);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [tab, file, approvals, files, approveFile, unapproveFile, setCurrentFile]);
 
   if (!file || !range) return null;
 
@@ -142,13 +163,13 @@ export function DiffTab() {
             <span className={`hint${ok.left && ok.right ? "" : " warn"}`}>{commentHint}</span>
             <span className="spacer" />
             {fully ? (
-              <button className="action approved" onClick={() => unapproveFile(file)}>
+              <button className="action approved" title="Unapprove (a)" onClick={() => unapproveFile(file)}>
                 <span className="status-dot approved" /> Approved · Unapprove
               </button>
             ) : (
               <button
                 className="action primary"
-                title={next ? `Then open ${next}` : "This is the last unapproved file"}
+                title={(next ? `Then open ${next}` : "This is the last unapproved file") + " (a)"}
                 onClick={() => {
                   approveFile(file);
                   if (next) setCurrentFile(next);
