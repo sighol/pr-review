@@ -1,14 +1,16 @@
 import { cellStatus, isFullyApproved, lastApproved } from "../lib/approval";
+import { compressPath } from "../lib/pathlabel";
 import { rangeFromColumns, rangeLabel } from "../lib/range";
 import { useStore } from "../store";
 import { useCommitDrag } from "./useCommitDrag";
 
 function PathLabel({ path, oldPath }: { path: string; oldPath?: string }) {
-  const i = path.lastIndexOf("/") + 1;
+  const display = compressPath(path);
+  const i = display.lastIndexOf("/") + 1;
   return (
     <span className="mx-path" title={oldPath ? `${oldPath} → ${path}` : path}>
-      <span className="mx-dir">{path.slice(0, i)}</span>
-      <strong>{path.slice(i)}</strong>
+      <span className="mx-dir">{display.slice(0, i)}</span>
+      <strong>{display.slice(i)}</strong>
     </span>
   );
 }
