@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { buildFileTree, type FolderNode } from "./filetree";
+import { buildFileTree, flattenFiles, type FolderNode } from "./filetree";
 
 describe("buildFileTree", () => {
   test("flat files sort alphabetically with no folders", () => {
@@ -51,5 +51,12 @@ describe("buildFileTree", () => {
         children: [{ kind: "file", path: "a/b/c/d.rs", name: "d.rs" }],
       },
     ]);
+  });
+});
+
+describe("flattenFiles", () => {
+  test("walks folders before files, depth-first", () => {
+    const tree = buildFileTree(["z.rs", "a/x.rs", "a/y.rs"]);
+    expect(flattenFiles(tree)).toEqual(["a/x.rs", "a/y.rs", "z.rs"]);
   });
 });

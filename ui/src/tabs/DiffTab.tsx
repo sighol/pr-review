@@ -6,6 +6,7 @@ import { RangeBar } from "../components/RangeBar";
 import { isFullyApproved, latestCommit, nextUnapproved } from "../lib/approval";
 import { needsAnchor } from "../lib/anchor";
 import { rangeKey, useRangeData, useThreadAnchors } from "../lib/data";
+import { buildFileTree, flattenFiles } from "../lib/filetree";
 import { commentable, placeable, rangeLabel, sameRange, stateOf, threadPlacement } from "../lib/range";
 import { isResolved } from "../lib/threads";
 import { threadLine, useStore } from "../store";
@@ -45,14 +46,24 @@ export function DiffTab() {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       const el = e.target as HTMLElement | null;
       if (el && (el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName))) return;
-      if (e.key !== "a") return;
-      e.preventDefault();
-      if (isFullyApproved(file.changedBy, approvals.get(file.path))) {
-        unapproveFile(file);
-      } else {
-        approveFile(file);
-        const next = nextUnapproved(files, approvals, file.path);
-        if (next) setCurrentFile(next);
+      if (e.key === "a") {
+        e.preventDefault();
+        if (isFullyApproved(file.changedBy, approvals.get(file.path))) {
+          unapproveFile(file);
+        } else {
+          approveFile(file);
+          const next = nextUnapproved(files, approvals, file.path);
+          if (next) setCurrentFile(next);
+        }
+        return;
+      }
+      if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+        const order = flattenFiles(buildFileTree(files.map((f) => f.path)));
+        const neighbor = order[order.indexOf(file.path) + (e.key === "ArrowLeft" ? -1 : 1)];
+        if (neighbor) {
+          e.preventDefault();
+          setCurrentFile(neighbor);
+        }
       }
     };
     window.addEventListener("keydown", onKey);

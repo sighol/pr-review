@@ -68,3 +68,16 @@ function collapse(folder: RawFolder): FolderNode {
 export function buildFileTree(paths: readonly string[]): TreeNode[] {
   return children(buildRaw(paths));
 }
+
+/** File paths in the order the tree draws them (depth-first, folders before files), ignoring collapsed state. */
+export function flattenFiles(tree: TreeNode[]): string[] {
+  const out: string[] = [];
+  const walk = (nodes: TreeNode[]) => {
+    for (const n of nodes) {
+      if (n.kind === "file") out.push(n.path);
+      else walk(n.children);
+    }
+  };
+  walk(tree);
+  return out;
+}

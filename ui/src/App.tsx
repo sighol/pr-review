@@ -131,6 +131,19 @@ export function App() {
   useEffect(() => {
     if (loaded) log("info", `rendered the PR. ${describeViewport()}`);
   }, [loaded]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) return;
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      const el = e.target as HTMLElement | null;
+      if (el && (el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName))) return;
+      e.preventDefault();
+      if (e.key === "ArrowLeft") history.back();
+      else history.forward();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   if (error !== null) return <FatalError title="Could not load the PR" details={error} />;
   if (!loaded) return <div className="loading">Loading…</div>;
