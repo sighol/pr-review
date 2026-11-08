@@ -589,11 +589,11 @@ mod tests {
     #[test]
     fn parses_origin_urls() {
         let ok = |url| parse_github_owner_repo(url);
-        let expected = Some(("cognitedata".to_string(), "pr-review".to_string()));
-        assert_eq!(ok("git@github.com:cognitedata/pr-review.git"), expected);
-        assert_eq!(ok("https://github.com/cognitedata/pr-review.git"), expected);
-        assert_eq!(ok("https://github.com/cognitedata/pr-review"), expected);
-        assert_eq!(ok("git@gitlab.com:cognitedata/pr-review.git"), None);
+        let expected = Some(("sighol".to_string(), "pr-review".to_string()));
+        assert_eq!(ok("git@github.com:sighol/pr-review.git"), expected);
+        assert_eq!(ok("https://github.com/sighol/pr-review.git"), expected);
+        assert_eq!(ok("https://github.com/sighol/pr-review"), expected);
+        assert_eq!(ok("git@gitlab.com:sighol/pr-review.git"), None);
     }
 
     #[tokio::test]

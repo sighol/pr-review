@@ -151,7 +151,7 @@ rustPlatform.buildRustPackage {
       exec = "pr-review";
       icon = "pr-review";
       categories = [ "Development" ];
-      startupWMClass = "com.cognite.pr-review";
+      startupWMClass = "com.sighol.pr-review";
       noDisplay = true;
     })
   ];

@@ -10,4 +10,4 @@ Icon={{icon}}
 Name={{name}}
 Terminal=false
 Type=Application
-StartupWMClass=com.cognite.pr-review
+StartupWMClass=com.sighol.pr-review

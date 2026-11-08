@@ -37,9 +37,22 @@ The review comment supports directives to add/remove labels and assignees.
 
 ## Installation
 
-On nixos, I run `nix develop --command just install`.
+### NixOS
 
-On other linux OSes, you probably need to first install [tauri](https://tauri.app/).
+Add flake input:
+```nix
+pr-review = { url = "github:sighol/pr-review"; inputs.nixpkgs.follows = "nixpkgs"; };
+```
+Then add the package
+```nix
+environment.systemPackages = [
+  inputs.pr-review.packages.${pkgs.system}.default
+];
+```
+
+### Other linuxes
+
+You probably need to first install [tauri](https://tauri.app/).
 Then compile it with `cargo tauri build`,
 And then copy the `target/release/pr-review` binary to a folder in `$PATH`.
 
