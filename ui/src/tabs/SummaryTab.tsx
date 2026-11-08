@@ -19,11 +19,13 @@ const STATUS_LABEL: Record<PrStatus, string> = {
 };
 
 export function SummaryTab() {
-  const { threads, resolutions, jumpTo, pr } = useStore();
+  const { files, threads, resolutions, jumpTo, pr } = useStore();
   const lineThreads = sortThreads(
     threads.filter((t) => t.file !== null),
     resolutions,
   );
+  const added = files.reduce((sum, f) => sum + f.added, 0);
+  const removed = files.reduce((sum, f) => sum + f.removed, 0);
   const conversation = threads.find((t) => t.id === CONVERSATION_ID);
   const open = lineThreads.filter((t) => !isResolved(t, resolutions.get(t.id)));
   const withNew = open.filter((t) => newCount(t, resolutions.get(t.id)) > 0);
@@ -36,6 +38,10 @@ export function SummaryTab() {
       <p className="muted">
         opened by <strong style={{ color: authorColor(pr.author) }}>{pr.author}</strong> ·{" "}
         <span className={`pr-state pr-state-${pr.status}`}>{STATUS_LABEL[pr.status]}</span>
+        {" · "}
+        <span className="mx-stat">
+          <span className="add">+{added}</span>/<span className="del">-{removed}</span>
+        </span>
         {pr.url && (
           <>
             {" · "}
