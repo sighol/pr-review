@@ -11,3 +11,4 @@ Name={{name}}
 Terminal=false
 Type=Application
 StartupWMClass=com.sighol.pr-review
+NoDisplay=true
