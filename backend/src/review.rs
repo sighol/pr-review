@@ -144,6 +144,7 @@ pub async fn submit_saved(
     repo: &Path,
     manifest: &Manifest,
     input: ReviewInput,
+    progress: &(dyn Fn(&str) + Send + Sync),
 ) -> Result<SubmitResult> {
     let event: Event = input.event.parse()?;
     let saved = load_saved(db, repo, &manifest.base, &manifest.head).await?;
@@ -151,7 +152,7 @@ pub async fn submit_saved(
         build_submission(&saved, event, &manifest.head, &input.body, input.directives)?;
     let key = db.key();
 
-    let outcome = submit(&Gh, &key.owner, &key.repo, key.number, &submission).await?;
+    let outcome = submit(&Gh, &key.owner, &key.repo, key.number, &submission, progress).await?;
 
     let keep = outcome.conversation_error.as_ref().map(|_| CONVERSATION_ID);
     db.clear_submitted(keep)

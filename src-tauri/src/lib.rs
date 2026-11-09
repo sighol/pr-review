@@ -11,7 +11,7 @@ use pr_review_core::directives::Directives;
 use pr_review_core::manifest::Manifest;
 use pr_review_core::review::{ReviewInput, SubmitResult};
 use pr_review_core::{git, github, pr, review};
-use tauri::{Manager, State};
+use tauri::{Emitter, Manager, State};
 use tracing::{debug, info, warn};
 use tracing_subscriber::fmt::time::uptime;
 use tracing_subscriber::prelude::*;
@@ -295,12 +295,19 @@ async fn acknowledge_draft(state: State<'_, AppState>, draft_key: String) -> Res
 #[tauri::command]
 async fn submit_review(
     state: State<'_, AppState>,
+    window: tauri::Window,
     event: String,
     body: String,
     directives: Directives,
 ) -> Result<SubmitResult, String> {
     info!("submitting the review ({event})");
     let manifest = state.manifest.lock().unwrap().clone();
+    let progress = |message: &str| {
+        debug!("review progress: {message}");
+        if let Err(e) = window.emit("review-progress", message) {
+            warn!("could not emit review progress: {e}");
+        }
+    };
     let result = logged(
         "submit_review",
         review::submit_saved(
@@ -312,6 +319,7 @@ async fn submit_review(
                 body,
                 directives,
             },
+            &progress,
         ),
     )
     .await;

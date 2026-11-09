@@ -1,8 +1,9 @@
 import { useMemo, useState } from "react";
 import { CommentBox, describeRange } from "../components/CommentBox";
 import { DirectiveTextarea } from "../components/DirectiveTextarea";
+import { ProgressPopup } from "../components/ProgressPopup";
 import { ThreadBox } from "../components/ThreadBox";
-import type { ReviewEvent as Event, SubmitResult } from "../lib/backend";
+import { inTauri, type ReviewEvent as Event, type SubmitResult } from "../lib/backend";
 import { describeDirectives, hasDirectives, parseDirectives } from "../lib/directives";
 import { CONVERSATION_ID, isResolved, newCount, type FakeThread } from "../lib/threads";
 import { useRangeData } from "../lib/data";
@@ -68,6 +69,7 @@ export function ReviewTab() {
   // In a browser nothing is sent; the payload that would be sent is shown instead.
   const [submitted, setSubmitted] = useState<{ event: Event; payload: unknown } | null>(null);
   const [sending, setSending] = useState<Event | null>(null);
+  const [progressLines, setProgressLines] = useState<string[] | null>(null);
   const [result, setResult] = useState<SubmitResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Bumped by "Preview all"; each draft/reply box switches itself to preview mode when this changes.
@@ -103,8 +105,11 @@ export function ReviewTab() {
     setResult(null);
     setSubmitted(null);
     setSending(event);
+    setProgressLines(inTauri() ? ["Submitting review..."] : null);
     try {
-      const sent = await submitReview(event, parsed.text, parsed.directives);
+      const sent = await submitReview(event, parsed.text, parsed.directives, (message) =>
+        setProgressLines((prev) => [...(prev ?? []), message]),
+      );
       if (sent) setResult(sent);
       else {
         const directives = changes ? { directives: parsed.directives } : {};
@@ -114,6 +119,7 @@ export function ReviewTab() {
       setError(String(e));
     } finally {
       setSending(null);
+      setProgressLines(null);
     }
   };
   const label = (name: Event, text: string) =>
@@ -122,6 +128,7 @@ export function ReviewTab() {
 
   return (
     <div className="review">
+      {progressLines && <ProgressPopup lines={progressLines} />}
       <div className="page">
         <div className="review-head">
           <h1>Review</h1>

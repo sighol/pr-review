@@ -126,7 +126,12 @@ interface Store {
    * If a label or assignee change failed, the body becomes the directives still to apply.
    * Resolves to null in a browser, where nothing is sent.
    */
-  submitReview: (event: ReviewEvent, text: string, directives: Directives) => Promise<SubmitResult | null>;
+  submitReview: (
+    event: ReviewEvent,
+    text: string,
+    directives: Directives,
+    onProgress?: (message: string) => void,
+  ) => Promise<SubmitResult | null>;
 
   /** Reply drafts by thread id. "" means an open but empty box. */
   replies: ReadonlyMap<string, string>;
@@ -487,8 +492,13 @@ export function StoreProvider({
     persist.acknowledgeDraft(key);
   }, []);
 
-  const submitReview = useCallback(async (event: ReviewEvent, text: string, directives: Directives): Promise<SubmitResult | null> => {
-    const result = await sendReview(event, text, directives);
+  const submitReview = useCallback(async (
+    event: ReviewEvent,
+    text: string,
+    directives: Directives,
+    onProgress?: (message: string) => void,
+  ): Promise<SubmitResult | null> => {
+    const result = await sendReview(event, text, directives, onProgress);
     if (!result) return null;
     // The backend already cleared its copy; mirror that here without saving anything.
     setDrafts(new Map());

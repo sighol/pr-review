@@ -19,7 +19,7 @@ export interface FileKey {
   dir: string;
 }
 
-const inTauri = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+export const inTauri = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
 const cache = new Map<string, Promise<string>>();
 function cached(key: string, load: () => Promise<string>): Promise<string> {
@@ -164,12 +164,25 @@ export interface SubmitResult {
  * Sends the saved review to GitHub. Resolves to null in a browser, where nothing is sent.
  * Rejects with GitHub's or git's message when the submit fails; nothing is posted then.
  */
-export function submitReview(event: ReviewEvent, body: string, directives: Directives): Promise<SubmitResult | null> {
+export function submitReview(
+  event: ReviewEvent,
+  body: string,
+  directives: Directives,
+  onProgress?: (message: string) => void,
+): Promise<SubmitResult | null> {
   if (!inTauri()) return Promise.resolve(null);
   flushSaves(); // so the database has everything you typed
   const run = queue.then(async () => {
     const { invoke } = await import("@tauri-apps/api/core");
-    return invoke<SubmitResult>("submit_review", { event, body, directives });
+    const { listen } = await import("@tauri-apps/api/event");
+    const unlisten = onProgress
+      ? await listen<string>("review-progress", (e) => onProgress(e.payload))
+      : undefined;
+    try {
+      return await invoke<SubmitResult>("submit_review", { event, body, directives });
+    } finally {
+      unlisten?.();
+    }
   });
   queue = run.catch(() => undefined);
   return run;

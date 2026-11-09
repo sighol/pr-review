@@ -152,7 +152,9 @@ pub async fn submit(
     repo: &str,
     number: u64,
     sub: &Submission,
+    progress: &(dyn Fn(&str) + Send + Sync),
 ) -> Result<Outcome> {
+    progress("Checking the PR on GitHub...");
     let pr = gh
         .call(
             PR_QUERY,
@@ -181,18 +183,21 @@ pub async fn submit(
     let plan = if sub.directives.is_empty() {
         None
     } else {
+        progress("Looking up labels and assignees...");
         Some(directives::plan(gh, owner, repo, number, &pr_id, &sub.directives).await?)
     };
 
     let review_url = if sub.post_review {
+        progress("Creating the pending review...");
         let review = gh
             .call(ADD_REVIEW, json!({ "pr": pr_id, "commit": sub.head_oid }))
             .await?;
         let review_id =
             string_at(&review, "/addPullRequestReview/pullRequestReview/id")?.to_string();
-        match fill_and_submit(gh, &review_id, sub).await {
+        match fill_and_submit(gh, &review_id, sub, progress).await {
             Ok(url) => Some(url),
             Err(e) => {
+                progress("Rolling back the pending review...");
                 return Err(match gh.call(DELETE, json!({ "id": review_id })).await {
                     Ok(_) => e,
                     Err(cleanup) => anyhow!(
@@ -206,18 +211,23 @@ pub async fn submit(
     };
 
     let conversation_error = match sub.conversation_reply.as_deref() {
-        Some(body) => gh
-            .call(
+        Some(body) => {
+            progress("Posting your reply to the conversation...");
+            gh.call(
                 ADD_COMMENT,
                 json!({ "input": { "subjectId": pr_id, "body": body } }),
             )
             .await
             .err()
-            .map(|e| format!("{e:#}")),
+            .map(|e| format!("{e:#}"))
+        }
         None => None,
     };
     let directives = match &plan {
-        Some(plan) => directives::apply(gh, plan).await,
+        Some(plan) => {
+            progress("Applying label and assignee changes...");
+            directives::apply(gh, plan).await
+        }
         None => Applied::default(),
     };
     Ok(Outcome {
@@ -227,13 +237,20 @@ pub async fn submit(
     })
 }
 
-async fn fill_and_submit(gh: &impl GraphQl, review_id: &str, sub: &Submission) -> Result<String> {
+async fn fill_and_submit(
+    gh: &impl GraphQl,
+    review_id: &str,
+    sub: &Submission,
+    progress: &(dyn Fn(&str) + Send + Sync),
+) -> Result<String> {
     for c in &sub.comments {
+        progress(&format!("Posting comment on {}:{}...", c.path, c.end_line));
         gh.call(ADD_THREAD, json!({ "input": thread_input(review_id, c) }))
             .await
             .with_context(|| format!("posting the comment on {}:{}", c.path, c.end_line))?;
     }
     for r in &sub.replies {
+        progress("Posting reply...");
         gh.call(
             ADD_REPLY,
             json!({ "input": {
@@ -245,6 +262,7 @@ async fn fill_and_submit(gh: &impl GraphQl, review_id: &str, sub: &Submission) -
         .await
         .context("posting a reply")?;
     }
+    progress("Submitting the review...");
     let submitted = gh
         .call(
             SUBMIT,
@@ -371,7 +389,7 @@ mod tests {
     #[tokio::test]
     async fn posts_everything_in_one_review_in_order() {
         let gh = Fake::new();
-        let out = submit(&gh, "o", "r", 7, &submission()).await.unwrap();
+        let out = submit(&gh, "o", "r", 7, &submission(), &|_| {}).await.unwrap();
         assert_eq!(
             gh.names(),
             [
@@ -400,7 +418,7 @@ mod tests {
             fail: &["reply"],
             ..Fake::new()
         };
-        let err = submit(&gh, "o", "r", 7, &submission()).await.unwrap_err();
+        let err = submit(&gh, "o", "r", 7, &submission(), &|_| {}).await.unwrap_err();
         assert!(format!("{err:#}").contains("boom in reply"));
         assert_eq!(
             gh.names(),
@@ -416,7 +434,7 @@ mod tests {
         };
         let err = format!(
             "{:#}",
-            submit(&gh, "o", "r", 7, &submission()).await.unwrap_err()
+            submit(&gh, "o", "r", 7, &submission(), &|_| {}).await.unwrap_err()
         );
         assert!(err.contains("boom in thread"));
         assert!(err.contains("could not delete the pending review"));
@@ -428,7 +446,7 @@ mod tests {
             pending: 1,
             ..Fake::new()
         };
-        let err = submit(&gh, "o", "r", 7, &submission()).await.unwrap_err();
+        let err = submit(&gh, "o", "r", 7, &submission(), &|_| {}).await.unwrap_err();
         assert!(err.to_string().contains("pending review"));
         assert_eq!(gh.names(), ["pr"]);
     }
@@ -439,7 +457,7 @@ mod tests {
             head: "NEWER",
             ..Fake::new()
         };
-        let err = submit(&gh, "o", "r", 7, &submission()).await.unwrap_err();
+        let err = submit(&gh, "o", "r", 7, &submission(), &|_| {}).await.unwrap_err();
         assert!(err.to_string().contains("new commits"));
         assert_eq!(gh.names(), ["pr"]);
     }
@@ -450,7 +468,7 @@ mod tests {
             fail: &["comment"],
             ..Fake::new()
         };
-        let out = submit(&gh, "o", "r", 7, &submission()).await.unwrap();
+        let out = submit(&gh, "o", "r", 7, &submission(), &|_| {}).await.unwrap();
         assert_eq!(out.review_url.as_deref(), Some("https://example/r"));
         assert!(out.conversation_error.unwrap().contains("boom in comment"));
         assert!(!gh.names().contains(&"delete"));
@@ -463,7 +481,7 @@ mod tests {
             conversation_reply: None,
             ..submission()
         };
-        submit(&gh, "o", "r", 7, &sub).await.unwrap();
+        submit(&gh, "o", "r", 7, &sub, &|_| {}).await.unwrap();
         assert!(!gh.names().contains(&"comment"));
     }
 
@@ -481,7 +499,7 @@ mod tests {
             directives: add_label("Ready"),
             ..submission()
         };
-        let out = submit(&gh, "o", "r", 7, &sub).await.unwrap();
+        let out = submit(&gh, "o", "r", 7, &sub, &|_| {}).await.unwrap();
         assert_eq!(
             gh.names(),
             [
@@ -507,7 +525,7 @@ mod tests {
             directives: add_label("reayd"),
             ..submission()
         };
-        let err = submit(&gh, "o", "r", 7, &sub).await.unwrap_err();
+        let err = submit(&gh, "o", "r", 7, &sub, &|_| {}).await.unwrap_err();
         assert!(err.to_string().contains("no such label"));
         assert_eq!(gh.names(), ["pr", "lookup"]);
     }
@@ -529,7 +547,7 @@ mod tests {
             post_review: false,
             ..submission()
         };
-        let out = submit(&gh, "o", "r", 7, &sub).await.unwrap();
+        let out = submit(&gh, "o", "r", 7, &sub, &|_| {}).await.unwrap();
         assert_eq!(out.review_url, None);
         assert_eq!(gh.names(), ["pr", "lookup", "add_labels"]);
     }
@@ -544,7 +562,7 @@ mod tests {
             directives: add_label("ready"),
             ..submission()
         };
-        let out = submit(&gh, "o", "r", 7, &sub).await.unwrap();
+        let out = submit(&gh, "o", "r", 7, &sub, &|_| {}).await.unwrap();
         assert_eq!(out.review_url.as_deref(), Some("https://example/r"));
         assert!(out.directives.error.unwrap().contains("boom in add_labels"));
         assert_eq!(out.directives.unapplied, add_label("ready"));
