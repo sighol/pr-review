@@ -152,7 +152,15 @@ pub async fn submit_saved(
         build_submission(&saved, event, &manifest.head, &input.body, input.directives)?;
     let key = db.key();
 
-    let outcome = submit(&Gh, &key.owner, &key.repo, key.number, &submission, progress).await?;
+    let outcome = submit(
+        &Gh,
+        &key.owner,
+        &key.repo,
+        key.number,
+        &submission,
+        progress,
+    )
+    .await?;
 
     let keep = outcome.conversation_error.as_ref().map(|_| CONVERSATION_ID);
     db.clear_submitted(keep)
@@ -161,7 +169,10 @@ pub async fn submit_saved(
 
     let (threads, refresh_error) =
         match github::fetch_discussion(&key.owner, &key.repo, key.number).await {
-            Ok((raw, conversation)) => (Some(manifest.threads_from(raw, conversation)), None),
+            Ok((raw, conversation, reviews)) => (
+                Some(manifest.threads_from(raw, conversation, reviews)),
+                None,
+            ),
             Err(e) => (None, Some(format!("{e:#}"))),
         };
 

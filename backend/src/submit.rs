@@ -389,7 +389,9 @@ mod tests {
     #[tokio::test]
     async fn posts_everything_in_one_review_in_order() {
         let gh = Fake::new();
-        let out = submit(&gh, "o", "r", 7, &submission(), &|_| {}).await.unwrap();
+        let out = submit(&gh, "o", "r", 7, &submission(), &|_| {})
+            .await
+            .unwrap();
         assert_eq!(
             gh.names(),
             [
@@ -418,7 +420,9 @@ mod tests {
             fail: &["reply"],
             ..Fake::new()
         };
-        let err = submit(&gh, "o", "r", 7, &submission(), &|_| {}).await.unwrap_err();
+        let err = submit(&gh, "o", "r", 7, &submission(), &|_| {})
+            .await
+            .unwrap_err();
         assert!(format!("{err:#}").contains("boom in reply"));
         assert_eq!(
             gh.names(),
@@ -434,7 +438,9 @@ mod tests {
         };
         let err = format!(
             "{:#}",
-            submit(&gh, "o", "r", 7, &submission(), &|_| {}).await.unwrap_err()
+            submit(&gh, "o", "r", 7, &submission(), &|_| {})
+                .await
+                .unwrap_err()
         );
         assert!(err.contains("boom in thread"));
         assert!(err.contains("could not delete the pending review"));
@@ -446,7 +452,9 @@ mod tests {
             pending: 1,
             ..Fake::new()
         };
-        let err = submit(&gh, "o", "r", 7, &submission(), &|_| {}).await.unwrap_err();
+        let err = submit(&gh, "o", "r", 7, &submission(), &|_| {})
+            .await
+            .unwrap_err();
         assert!(err.to_string().contains("pending review"));
         assert_eq!(gh.names(), ["pr"]);
     }
@@ -457,7 +465,9 @@ mod tests {
             head: "NEWER",
             ..Fake::new()
         };
-        let err = submit(&gh, "o", "r", 7, &submission(), &|_| {}).await.unwrap_err();
+        let err = submit(&gh, "o", "r", 7, &submission(), &|_| {})
+            .await
+            .unwrap_err();
         assert!(err.to_string().contains("new commits"));
         assert_eq!(gh.names(), ["pr"]);
     }
@@ -468,7 +478,9 @@ mod tests {
             fail: &["comment"],
             ..Fake::new()
         };
-        let out = submit(&gh, "o", "r", 7, &submission(), &|_| {}).await.unwrap();
+        let out = submit(&gh, "o", "r", 7, &submission(), &|_| {})
+            .await
+            .unwrap();
         assert_eq!(out.review_url.as_deref(), Some("https://example/r"));
         assert!(out.conversation_error.unwrap().contains("boom in comment"));
         assert!(!gh.names().contains(&"delete"));

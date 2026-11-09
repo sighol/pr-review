@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { authorColor } from "../lib/authorColor";
 import { langFor } from "../lib/highlight";
 import { asOfRange, rangeLabel } from "../lib/range";
-import { firstNewIndex, isResolved, newCount, replacedLines, type FakeThread } from "../lib/threads";
+import { firstNewIndex, isResolved, newCount, replacedLines, reviewVerdictLabel, type FakeThread } from "../lib/threads";
 import { fullDateTime } from "../lib/time";
 import { useStore } from "../store";
 import { ExternalLink } from "./ExternalLink";
@@ -114,9 +114,14 @@ export function ThreadBox({ thread, expanded = false, preview = false, outdatedA
                     </>
                   )}
                   {isNew && <span className="badge-new inline">NEW</span>}
+                  {c.reviewState && (
+                    <span className={`verdict-badge verdict-${c.reviewState.toLowerCase()}`}>
+                      {reviewVerdictLabel(c.reviewState)}
+                    </span>
+                  )}
                 </span>
               </div>
-              <Markdown text={c.body} fileLang={fileLang} replaces={replaces} />
+              {c.body && <Markdown text={c.body} fileLang={fileLang} replaces={replaces} />}
             </div>
           </div>
         );

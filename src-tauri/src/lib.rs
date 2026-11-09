@@ -191,12 +191,12 @@ fn open_pr(state: State<'_, AppState>) -> Manifest {
 async fn refresh(state: State<'_, AppState>, window: tauri::Window) -> Result<Manifest, String> {
     let key = state.db.key().clone();
     logged(&format!("refresh PR #{}", key.number), async {
-        let (info, (raw_threads, conversation)) = tokio::try_join!(
+        let (info, (raw_threads, conversation, reviews)) = tokio::try_join!(
             github::pr_view(&key.owner, &key.repo, key.number),
             github::fetch_discussion(&key.owner, &key.repo, key.number),
         )?;
         let mut manifest = state.manifest.lock().unwrap();
-        manifest.set_threads(raw_threads, conversation);
+        manifest.set_threads(raw_threads, conversation, reviews);
         manifest.pr = Some(info.meta);
         info!(
             "refreshed PR #{}: {} threads",

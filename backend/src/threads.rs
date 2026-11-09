@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use serde::Serialize;
 
-use crate::github::{RawComment, RawThread};
+use crate::github::{RawComment, RawReview, RawThread};
 
 /// Id of the thread holding the PR's top-level comments; the frontend's `CONVERSATION_ID`.
 pub const CONVERSATION_ID: &str = "conversation";
@@ -38,6 +38,9 @@ pub struct Comment {
     pub body: String,
     /// The comment's permalink on github.com.
     pub url: String,
+    /// Set when this is a submitted review's own summary, not a plain comment: "APPROVED",
+    /// "CHANGES_REQUESTED", "COMMENTED", or "DISMISSED".
+    pub review_state: Option<String>,
 }
 
 fn comment(c: RawComment) -> Comment {
@@ -47,6 +50,18 @@ fn comment(c: RawComment) -> Comment {
         created_at: c.created_at,
         body: c.body,
         url: c.url,
+        review_state: None,
+    }
+}
+
+fn review_comment(r: RawReview) -> Comment {
+    Comment {
+        id: r.id,
+        author: r.author,
+        created_at: r.submitted_at,
+        body: r.body,
+        url: r.url,
+        review_state: Some(r.state),
     }
 }
 
@@ -60,10 +75,13 @@ pub fn follow_renames(threads: &mut [Thread], renames: &HashMap<&str, &str>) {
     }
 }
 
-/// `commit_numbers` maps a commit oid to its 1-based number in the PR.
+/// `commit_numbers` maps a commit oid to its 1-based number in the PR. Conversation comments and
+/// submitted reviews are merged into one "conversation" thread, oldest first, matching how
+/// GitHub's own PR page interleaves them.
 pub fn build_threads(
     raw: Vec<RawThread>,
     conversation: Vec<RawComment>,
+    reviews: Vec<RawReview>,
     commit_numbers: &HashMap<&str, usize>,
 ) -> Vec<Thread> {
     let mut threads: Vec<Thread> = raw
@@ -93,7 +111,14 @@ pub fn build_threads(
         })
         .collect();
 
-    if !conversation.is_empty() {
+    let mut activity: Vec<Comment> = conversation
+        .into_iter()
+        .map(comment)
+        .chain(reviews.into_iter().map(review_comment))
+        .collect();
+    activity.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+
+    if !activity.is_empty() {
         threads.push(Thread {
             id: CONVERSATION_ID.to_string(),
             file: None,
@@ -103,7 +128,7 @@ pub fn build_threads(
             original_line: 0,
             commit: 0,
             github_resolved: false,
-            comments: conversation.into_iter().map(comment).collect(),
+            comments: activity,
         });
     }
     threads
@@ -121,6 +146,17 @@ mod tests {
             body: format!("body {id}"),
             url: format!("https://github.com/o/r/pull/1#discussion_{id}"),
             original_commit_oid: commit.map(String::from),
+        }
+    }
+
+    fn raw_review(id: &str, submitted_at: &str, state: &str, body: &str) -> RawReview {
+        RawReview {
+            id: id.into(),
+            author: "bob".into(),
+            submitted_at: submitted_at.into(),
+            body: body.into(),
+            url: format!("https://github.com/o/r/pull/1#pullrequestreview-{id}"),
+            state: state.into(),
         }
     }
 
@@ -153,6 +189,7 @@ mod tests {
                 raw_thread("t2", "LEFT", Some(4), false, Some("aaa")),
                 raw_thread("t3", "RIGHT", None, true, Some("aaa")),
             ],
+            vec![],
             vec![],
             &numbers,
         );
@@ -192,6 +229,7 @@ mod tests {
         let t = build_threads(
             vec![multi, single_with_equal_start, outdated],
             vec![],
+            vec![],
             &HashMap::new(),
         );
         assert_eq!((t[0].start_line, t[0].line), (Some(49), Some(51)));
@@ -208,6 +246,7 @@ mod tests {
         let t = build_threads(
             vec![raw_thread("t", "RIGHT", Some(9), true, None)],
             vec![],
+            vec![],
             &HashMap::new(),
         );
         assert_eq!(t[0].line, None);
@@ -222,6 +261,7 @@ mod tests {
                 raw_thread("none", "RIGHT", Some(9), false, None),
             ],
             vec![],
+            vec![],
             &numbers,
         );
         assert_eq!((t[0].commit, t[1].commit), (0, 0));
@@ -229,12 +269,13 @@ mod tests {
 
     #[test]
     fn conversation_becomes_one_thread_only_when_it_has_comments() {
-        let none = build_threads(vec![], vec![], &HashMap::new());
+        let none = build_threads(vec![], vec![], vec![], &HashMap::new());
         assert!(none.is_empty());
 
         let t = build_threads(
             vec![],
             vec![raw_comment("IC_1", None), raw_comment("IC_2", None)],
+            vec![],
             &HashMap::new(),
         );
         assert_eq!(t.len(), 1);
@@ -245,10 +286,42 @@ mod tests {
     }
 
     #[test]
+    fn reviews_are_merged_into_the_conversation_in_time_order() {
+        let none = build_threads(
+            vec![],
+            vec![],
+            vec![raw_review("PRR_1", "2026-01-05T00:00:00Z", "APPROVED", "")],
+            &HashMap::new(),
+        );
+        assert_eq!(none.len(), 1, "a review with no comments still makes one");
+
+        let t = build_threads(
+            vec![],
+            vec![raw_comment("IC_1", None)],
+            vec![raw_review(
+                "PRR_1",
+                "2026-01-01T00:00:00Z",
+                "APPROVED",
+                "LGTM",
+            )],
+            &HashMap::new(),
+        );
+        assert_eq!(t.len(), 1);
+        assert_eq!(t[0].comments.len(), 2);
+        assert_eq!(
+            (t[0].comments[0].id.as_str(), &t[0].comments[0].review_state),
+            ("PRR_1", &Some("APPROVED".to_string())),
+            "the review was submitted before the comment, so it comes first"
+        );
+        assert_eq!(t[0].comments[1].review_state, None);
+    }
+
+    #[test]
     fn threads_on_an_old_name_follow_the_rename() {
         let mut t = build_threads(
             vec![raw_thread("t", "RIGHT", Some(1), false, None)],
             vec![raw_comment("IC_1", None)],
+            vec![],
             &HashMap::new(),
         );
         let old = t[0].file.clone().unwrap();
@@ -261,6 +334,7 @@ mod tests {
     fn serializes_for_the_frontend() {
         let t = build_threads(
             vec![raw_thread("t", "LEFT", Some(1), false, None)],
+            vec![],
             vec![],
             &HashMap::new(),
         );

@@ -87,7 +87,7 @@ export function ReviewTab() {
       if (draftItems.length || replyThreads.length) out.push({ key: f.name, title: f.path, draftItems, replyThreads });
     }
     const conv = threads.filter((t) => t.file === null && replies.has(t.id));
-    if (conv.length) out.push({ key: "conversation", title: "Conversation", draftItems: [], replyThreads: conv });
+    if (conv.length) out.push({ key: "conversation", title: "Activity", draftItems: [], replyThreads: conv });
     return out;
   }, [files, drafts, replies, threads]);
 
@@ -179,7 +179,7 @@ export function ReviewTab() {
               <div className="review-item" key={t.id}>
                 <div className="review-item-head">
                   <span className="loc">
-                    {t.id === CONVERSATION_ID ? "Conversation" : `${fileByName.get(t.file!)?.path}:${threadLine(t)}`} · reply
+                    {t.id === CONVERSATION_ID ? "Activity" : `${fileByName.get(t.file!)?.path}:${threadLine(t)}`} · reply
                   </span>
                   <ThreadStatus thread={t} />
                   <span className="spacer" />

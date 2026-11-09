@@ -474,6 +474,30 @@ textarea {
   margin-left: 8px;
   padding: 0 6px;
 }
+.verdict-badge {
+  margin-left: 8px;
+  padding: 0 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.verdict-badge.verdict-approved {
+  background: rgba(46, 160, 67, 0.18);
+  color: #3fb950;
+}
+.verdict-badge.verdict-changes_requested {
+  background: rgba(248, 81, 73, 0.18);
+  color: #f85149;
+}
+.verdict-badge.verdict-commented {
+  background: rgba(125, 133, 144, 0.18);
+  color: var(--muted);
+}
+.verdict-badge.verdict-dismissed {
+  background: rgba(125, 133, 144, 0.1);
+  color: var(--muted);
+  text-decoration: line-through;
+}
 .pr-state {
   display: inline-block;
   padding: 1px 8px;

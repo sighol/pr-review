@@ -83,7 +83,7 @@ export function SummaryTab() {
 
       {conversation && (
         <>
-          <h2>Conversation</h2>
+          <h2>Activity</h2>
           <div className="conversation">
             <ThreadBox thread={conversation} />
           </div>

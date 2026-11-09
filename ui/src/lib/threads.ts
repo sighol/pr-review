@@ -1,6 +1,9 @@
 import { textToLines, type Side } from "./diff";
 import { relativeTime } from "./time";
 
+/** GitHub's verdict for a submitted review. */
+export type ReviewState = "APPROVED" | "CHANGES_REQUESTED" | "COMMENTED" | "DISMISSED";
+
 export interface FakeComment {
   id: string;
   author: string;
@@ -10,6 +13,8 @@ export interface FakeComment {
   body: string;
   /** The comment on github.com; the fake comments have none. */
   url?: string;
+  /** Set when this is a submitted review's own summary, not a plain comment. */
+  reviewState?: ReviewState;
 }
 
 export interface FakeThread {
@@ -43,7 +48,7 @@ export interface ThreadJson {
   /** Commit number; 0 when unknown (force-pushed away) or for the conversation. */
   commit: number;
   githubResolved: boolean;
-  comments: { id: string; author: string; createdAt: string; body: string; url: string }[];
+  comments: { id: string; author: string; createdAt: string; body: string; url: string; reviewState: ReviewState | null }[];
 }
 
 /**
@@ -66,6 +71,7 @@ export function threadFromJson(j: ThreadJson, now: number): FakeThread {
       createdAt: c.createdAt,
       body: c.body,
       url: c.url,
+      reviewState: c.reviewState ?? undefined,
     })),
   };
 }
@@ -81,6 +87,15 @@ export interface Resolution {
 }
 
 export const CONVERSATION_ID = "conversation";
+
+const REVIEW_VERDICT_LABEL: Record<ReviewState, string> = {
+  APPROVED: "Approved",
+  CHANGES_REQUESTED: "Requested changes",
+  COMMENTED: "Commented",
+  DISMISSED: "Dismissed review",
+};
+
+export const reviewVerdictLabel = (state: ReviewState) => REVIEW_VERDICT_LABEL[state];
 
 export const lastCommentId = (t: FakeThread) => t.comments[t.comments.length - 1].id;
 
@@ -328,7 +343,15 @@ export const ALL_THREADS: FakeThread[] = [
     resolvedThrough: "cv1",
     comments: [
       { id: "cv1", author: "alice", when: "3 days ago", body: "Thanks for picking this up. Will review properly tomorrow." },
+      {
+        id: "cv4",
+        author: "alice",
+        when: "2 days ago",
+        body: "Looks solid overall, just a couple of small things inline.",
+        reviewState: "CHANGES_REQUESTED",
+      },
       { id: "cv2", author: "bob", when: "1 day ago", body: "FWIW I tried this from a `jj` workspace and it works there too." },
+      { id: "cv5", author: "bob", when: "20 hours ago", body: "", reviewState: "APPROVED" },
       { id: "cv3", author: "carol", when: "2 hours ago", body: "Can you add a note to the README about running from subdirectories?" },
     ],
   },

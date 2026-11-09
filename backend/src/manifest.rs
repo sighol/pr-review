@@ -6,7 +6,7 @@ use serde::Serialize;
 use tracing::warn;
 
 use crate::git;
-use crate::github::{PrMeta, RawComment, RawThread};
+use crate::github::{PrMeta, RawComment, RawReview, RawThread};
 use crate::threads::{Thread, build_threads, follow_renames};
 
 /// Same JSON shape as `ui/scripts/make-fixtures.py` writes to `public/pr/manifest.json`,
@@ -38,16 +38,26 @@ impl Manifest {
             .collect()
     }
 
-    /// The review threads and the conversation from GitHub's raw data, mapped onto this PR's
-    /// commit numbers and file names.
-    pub fn threads_from(&self, raw: Vec<RawThread>, conversation: Vec<RawComment>) -> Vec<Thread> {
-        let mut threads = build_threads(raw, conversation, &self.commit_numbers());
+    /// The review threads, the conversation, and submitted reviews from GitHub's raw data, mapped
+    /// onto this PR's commit numbers and file names.
+    pub fn threads_from(
+        &self,
+        raw: Vec<RawThread>,
+        conversation: Vec<RawComment>,
+        reviews: Vec<RawReview>,
+    ) -> Vec<Thread> {
+        let mut threads = build_threads(raw, conversation, reviews, &self.commit_numbers());
         follow_renames(&mut threads, &self.renames());
         threads
     }
 
-    pub fn set_threads(&mut self, raw: Vec<RawThread>, conversation: Vec<RawComment>) {
-        self.threads = Some(self.threads_from(raw, conversation));
+    pub fn set_threads(
+        &mut self,
+        raw: Vec<RawThread>,
+        conversation: Vec<RawComment>,
+        reviews: Vec<RawReview>,
+    ) {
+        self.threads = Some(self.threads_from(raw, conversation, reviews));
     }
 }
 

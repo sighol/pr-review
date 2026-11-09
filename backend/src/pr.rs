@@ -33,7 +33,7 @@ pub async fn open_pr(cwd: &Path, number: u64) -> Result<OpenedPr> {
         "fetching PR #{number}, {} and its discussion",
         info.base_ref_name
     );
-    let (range, (raw_threads, conversation)) = tokio::try_join!(
+    let (range, (raw_threads, conversation, reviews)) = tokio::try_join!(
         git::fetch_pr(
             &repo,
             number,
@@ -43,16 +43,17 @@ pub async fn open_pr(cwd: &Path, number: u64) -> Result<OpenedPr> {
         github::fetch_discussion(&owner, &name, number)
     )?;
     info!(
-        "fetched: base {} head {}, {} review threads, {} conversation comments",
+        "fetched: base {} head {}, {} review threads, {} conversation comments, {} reviews",
         short(&range.base),
         short(&range.head),
         raw_threads.len(),
-        conversation.len()
+        conversation.len(),
+        reviews.len()
     );
 
     info!("reading commits and diffs");
     let mut manifest = build_manifest(&repo, &range.base, &range.head).await?;
-    manifest.set_threads(raw_threads, conversation);
+    manifest.set_threads(raw_threads, conversation, reviews);
     manifest.pr = Some(info.meta);
     info!(
         "PR #{number} ready: {} commits, {} files, {} threads in {:?}",

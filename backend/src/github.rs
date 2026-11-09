@@ -194,6 +194,21 @@ pub struct RawComment {
     pub original_commit_oid: Option<String>,
 }
 
+/// A submitted review on the PR: its verdict and top-level summary text, separate from its inline
+/// comments (see `RawThread`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RawReview {
+    pub id: String,
+    pub author: String,
+    /// ISO 8601, as GitHub returns it.
+    pub submitted_at: String,
+    pub body: String,
+    /// The review's permalink on github.com.
+    pub url: String,
+    /// "APPROVED", "CHANGES_REQUESTED", "COMMENTED", or "DISMISSED".
+    pub state: String,
+}
+
 /// An inline review thread as GitHub describes it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RawThread {
@@ -405,6 +420,108 @@ pub async fn fetch_review_threads(owner: &str, repo: &str, number: u64) -> Resul
     }
 }
 
+const REVIEWS_QUERY: &str = r#"
+query($owner: String!, $repo: String!, $number: Int!) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $number) {
+      reviews(first: 100) {
+        nodes { id author { login } state body submittedAt url }
+      }
+    }
+  }
+}
+"#;
+
+#[derive(Deserialize)]
+struct GqlReviewsEnvelope {
+    data: GqlReviewsData,
+}
+
+#[derive(Deserialize)]
+struct GqlReviewsData {
+    repository: GqlReviewsRepository,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GqlReviewsRepository {
+    pull_request: GqlReviewsPullRequest,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GqlReviewsPullRequest {
+    reviews: GqlReviews,
+}
+
+#[derive(Deserialize)]
+struct GqlReviews {
+    nodes: Vec<GqlReview>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GqlReview {
+    id: String,
+    author: Option<AuthorJson>,
+    state: String,
+    body: String,
+    submitted_at: Option<String>,
+    url: String,
+}
+
+/// Drops the viewer's own pending (unsubmitted) review, like `parse_threads_page` drops pending
+/// comments.
+fn parse_reviews(json: &[u8]) -> Result<Vec<RawReview>> {
+    let v: GqlReviewsEnvelope =
+        serde_json::from_slice(json).context("unexpected output from `gh api graphql`")?;
+    Ok(v.data
+        .repository
+        .pull_request
+        .reviews
+        .nodes
+        .into_iter()
+        .filter(|r| r.state != "PENDING")
+        .map(|r| RawReview {
+            id: r.id,
+            author: ghost_if_none(r.author),
+            submitted_at: r.submitted_at.unwrap_or_default(),
+            body: r.body,
+            url: r.url,
+            state: r.state,
+        })
+        .collect())
+}
+
+/// Every submitted review on the PR (not your own pending one), via `gh api graphql`.
+pub async fn fetch_reviews(owner: &str, repo: &str, number: u64) -> Result<Vec<RawReview>> {
+    let started = Instant::now();
+    let out = Command::new("gh")
+        .args([
+            "api",
+            "graphql",
+            "-f",
+            &format!("query={REVIEWS_QUERY}"),
+            "-f",
+            &format!("owner={owner}"),
+            "-f",
+            &format!("repo={repo}"),
+            "-F",
+            &format!("number={number}"),
+        ])
+        .output()
+        .await
+        .context("failed to run `gh api graphql` for reviews")?;
+    log_gh("api graphql (reviews)", started, &out);
+    if !out.status.success() {
+        bail!(
+            "fetching reviews failed: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        );
+    }
+    parse_reviews(&out.stdout)
+}
+
 #[derive(Deserialize)]
 struct ConversationJson {
     comments: Vec<ConversationCommentJson>,
@@ -462,15 +579,16 @@ pub async fn fetch_conversation(owner: &str, repo: &str, number: u64) -> Result<
     parse_conversation(&out.stdout)
 }
 
-/// Review threads and conversation comments.
+/// Review threads, conversation comments, and submitted reviews.
 pub async fn fetch_discussion(
     owner: &str,
     repo: &str,
     number: u64,
-) -> Result<(Vec<RawThread>, Vec<RawComment>)> {
+) -> Result<(Vec<RawThread>, Vec<RawComment>, Vec<RawReview>)> {
     tokio::try_join!(
         fetch_review_threads(owner, repo, number),
-        fetch_conversation(owner, repo, number)
+        fetch_conversation(owner, repo, number),
+        fetch_reviews(owner, repo, number),
     )
 }
 
@@ -525,6 +643,30 @@ mod tests {
         let json = br#"{"data":{"repository":{"pullRequest":{"reviewThreads":{
             "pageInfo":{"hasNextPage":false,"endCursor":"CUR"},"nodes":[]}}}}}"#;
         assert_eq!(parse_threads_page(json).unwrap(), (vec![], None));
+    }
+
+    #[test]
+    fn parses_reviews_and_drops_the_pending_one() {
+        let json = br#"{"data":{"repository":{"pullRequest":{"reviews":{"nodes":[
+            {"id":"PRR_1","author":{"login":"alice"},"state":"APPROVED","body":"LGTM","submittedAt":"2026-01-05T00:00:00Z","url":"https://github.com/o/r/pull/1#pullrequestreview-1"},
+            {"id":"PRR_2","author":null,"state":"CHANGES_REQUESTED","body":"please fix","submittedAt":"2026-01-06T00:00:00Z","url":"u2"},
+            {"id":"PRR_3","author":{"login":"me"},"state":"PENDING","body":"","submittedAt":null,"url":"u3"}
+        ]}}}}}"#;
+        let reviews = parse_reviews(json).unwrap();
+        assert_eq!(reviews.len(), 2, "the pending review is dropped");
+        assert_eq!(
+            reviews[0],
+            RawReview {
+                id: "PRR_1".into(),
+                author: "alice".into(),
+                submitted_at: "2026-01-05T00:00:00Z".into(),
+                body: "LGTM".into(),
+                url: "https://github.com/o/r/pull/1#pullrequestreview-1".into(),
+                state: "APPROVED".into(),
+            }
+        );
+        assert_eq!(reviews[1].author, "ghost");
+        assert_eq!(reviews[1].state, "CHANGES_REQUESTED");
     }
 
     #[test]
