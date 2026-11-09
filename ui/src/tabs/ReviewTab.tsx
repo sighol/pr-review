@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { CommentBox, describeRange } from "../components/CommentBox";
 import { DirectiveTextarea } from "../components/DirectiveTextarea";
+import { ExternalLink } from "../components/ExternalLink";
 import { ProgressPopup } from "../components/ProgressPopup";
 import { ThreadBox } from "../components/ThreadBox";
 import { inTauri, type ReviewEvent as Event, type SubmitResult } from "../lib/backend";
@@ -238,7 +239,15 @@ export function ReviewTab() {
             <div
               className={`submit-note ${result.conversationError || result.refreshError || result.directives.error ? "warn" : "ok"}`}
             >
-              <div>{result.reviewUrl ? `Review submitted: ${result.reviewUrl}` : "No review was posted."}</div>
+              <div>
+                {result.reviewUrl ? (
+                  <>
+                    Review submitted: <ExternalLink href={result.reviewUrl}>{result.reviewUrl}</ExternalLink>
+                  </>
+                ) : (
+                  "No review was posted."
+                )}
+              </div>
               {result.directives.changes.length > 0 && <div>{result.directives.changes.join(" · ")}</div>}
               {result.directives.error && (
                 <div>
