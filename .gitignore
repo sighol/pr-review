@@ -1,4 +1,5 @@
 /target
 /result
 /src-tauri/gen
+/.direnv
 .claude/settings.local.json
