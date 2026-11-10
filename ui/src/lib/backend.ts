@@ -49,11 +49,11 @@ export async function refreshManifest(): Promise<Manifest | null> {
   return invoke<Manifest>("refresh");
 }
 
-/** Opens the file in $PR_REVIEW_EDITOR (or `code`). No-op in a browser. */
-export async function openInEditor(path: string): Promise<void> {
+/** Opens the file in the given editor program (e.g. `code`, `zed`, `idea`). No-op in a browser. */
+export async function openInEditor(path: string, program: string): Promise<void> {
   if (!inTauri()) return;
   const { invoke } = await import("@tauri-apps/api/core");
-  await invoke("open_in_editor", { path });
+  await invoke("open_in_editor", { path, program });
 }
 
 /** The file's content at a state (see `stateOf` in range.ts). */

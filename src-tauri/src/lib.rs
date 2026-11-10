@@ -256,18 +256,12 @@ async fn file_diff(
     .await
 }
 
-/// Opens `path` (relative to the repo) in `$PR_REVIEW_EDITOR`, or `code` if that isn't set.
+/// Opens `path` (relative to the repo) in `program` (e.g. `code`, `zed`, `idea`).
 #[tauri::command]
-fn open_in_editor(state: State<'_, AppState>, path: String) -> Result<(), String> {
-    let editor = std::env::var("PR_REVIEW_EDITOR").unwrap_or_else(|_| "code".to_string());
-    let mut parts = editor.split_whitespace();
-    let program = parts
-        .next()
-        .ok_or_else(|| "PR_REVIEW_EDITOR is set but empty".to_string())?;
+fn open_in_editor(state: State<'_, AppState>, path: String, program: String) -> Result<(), String> {
     let full_path = state.repo.join(&path);
-    info!("opening {} in {editor}", full_path.display());
-    std::process::Command::new(program)
-        .args(parts)
+    info!("opening {} in {program}", full_path.display());
+    std::process::Command::new(&program)
         .arg(&full_path)
         .spawn()
         .map_err(|e| format!("could not run `{program}`: {e}"))?;

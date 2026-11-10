@@ -74,5 +74,4 @@ Options:
 
 ### Environment variables
 
-- `PR_REVIEW_EDITOR`: The editor used when selecting `open in editor` in the file tree.
 - `PR_REVIEW_LOG`: What to log. By default, it only logs warnings.

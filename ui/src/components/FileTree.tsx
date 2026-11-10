@@ -17,6 +17,8 @@ interface Menu {
   y: number;
 }
 
+const EDITORS = ["zed", "code", "idea"] as const;
+
 export function FileTree({
   paths,
   currentFile,
@@ -108,14 +110,19 @@ export function FileTree({
             >
               Copy path
             </button>
-            <button
-              onClick={() => {
-                openInEditor(menu.path).catch((e) => log("warn", `could not open ${menu.path} in the editor: ${describeError(e)}`));
-                setMenu(null);
-              }}
-            >
-              Open in editor
-            </button>
+            {EDITORS.map((program) => (
+              <button
+                key={program}
+                onClick={() => {
+                  openInEditor(menu.path, program).catch((e) =>
+                    log("warn", `could not open ${menu.path} in ${program}: ${describeError(e)}`),
+                  );
+                  setMenu(null);
+                }}
+              >
+                Open in {program}
+              </button>
+            ))}
           </div>
         </>
       )}
