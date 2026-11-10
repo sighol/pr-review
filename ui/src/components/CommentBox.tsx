@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { suggestionBlock, textToLines, type LineRange } from "../lib/diff";
 import { langFor } from "../lib/highlight";
 import { insertBlock } from "../lib/suggest";
+import { undoRedoWorkaround } from "../lib/undoRedo";
 import { useStore, type Draft } from "../store";
 import { Markdown } from "./Markdown";
 
@@ -99,6 +100,7 @@ export function CommentBox({ draft, preview = false, previewAllTick }: Props) {
         value={draft.text}
         placeholder="Leave a comment"
         onChange={(e) => patchDraft(draft.key, e.target.value)}
+        onKeyDown={undoRedoWorkaround}
         onBlur={() => {
           if (draft.text.trim() === "") removeDraft(draft.key);
         }}

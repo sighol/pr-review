@@ -130,6 +130,7 @@ The frontend deliberately consumes only "text + `git diff`", which is the contra
 - `ui/dist/` is a build artifact and not gitignored; don't commit it.
 - `ui/public/fixtures/` is a leftover from an older fixture layout and is unused. Delete it.
 - Browser verification: the claude-in-chrome tools work but are sometimes blocked by a temporary classifier outage; wait and retry rather than looping. The user has declined headless-Chrome screenshots run through Bash, so don't use them unprompted.
+- **Undo/redo in textareas doesn't work in Tauri's WebKitGTK webview** ([tauri-apps/tauri#16299](https://github.com/tauri-apps/tauri/issues/16299)): Ctrl/Cmd+Z does nothing. Worked around in `ui/src/lib/undoRedo.ts` (`undoRedoWorkaround`, wired via `onKeyDown` on every textarea — `CommentBox`, `ThreadBox`'s reply box, `DirectiveTextarea`) by calling `document.execCommand("undo"/"redo")` directly; a no-op outside Tauri, where native undo/redo already works.
 
 ## Not built yet
 

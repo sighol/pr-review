@@ -1,5 +1,6 @@
 import { Fragment, useMemo } from "react";
 import { parseDirectives } from "../lib/directives";
+import { undoRedoWorkaround } from "../lib/undoRedo";
 
 interface Props {
   value: string;
@@ -37,7 +38,12 @@ export function DirectiveTextarea({ value, onChange, placeholder }: Props) {
         ))}
         {value.endsWith("\n") && ZERO_WIDTH_SPACE}
       </div>
-      <textarea value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} />
+      <textarea
+        value={value}
+        placeholder={placeholder}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={undoRedoWorkaround}
+      />
     </div>
   );
 }

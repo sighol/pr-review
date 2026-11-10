@@ -4,6 +4,7 @@ import { langFor } from "../lib/highlight";
 import { asOfRange, rangeLabel } from "../lib/range";
 import { firstNewIndex, isResolved, newCount, replacedLines, reviewVerdictLabel, type FakeThread } from "../lib/threads";
 import { fullDateTime } from "../lib/time";
+import { undoRedoWorkaround } from "../lib/undoRedo";
 import { useStore } from "../store";
 import { ExternalLink } from "./ExternalLink";
 import { Markdown } from "./Markdown";
@@ -194,6 +195,7 @@ export function ReplyBox({
           value={text}
           placeholder="Reply"
           onChange={(e) => setReply(threadId, e.target.value)}
+          onKeyDown={undoRedoWorkaround}
           onBlur={() => text.trim() === "" && setReply(threadId, null)}
           style={preview && mode === "preview" ? { display: "none" } : undefined}
         />
