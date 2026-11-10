@@ -62,11 +62,12 @@ describe("next unapproved file", () => {
     { path: "b", changedBy: [2] },
     { path: "c", changedBy: [3] },
   ];
+  const order = ["a", "b", "c"];
 
   test("skips approved files and wraps around", () => {
     const approvals = new Map([["b", new Set([2])]]);
-    expect(nextUnapproved(files, approvals, "a")).toBe("c");
-    expect(nextUnapproved(files, approvals, "c")).toBe("a");
+    expect(nextUnapproved(files, approvals, "a", order)).toBe("c");
+    expect(nextUnapproved(files, approvals, "c", order)).toBe("a");
   });
 
   test("null when everything else is approved", () => {
@@ -74,6 +75,16 @@ describe("next unapproved file", () => {
       ["a", new Set([1])],
       ["b", new Set([2])],
     ]);
-    expect(nextUnapproved(files, approvals, "c")).toBeNull();
+    expect(nextUnapproved(files, approvals, "c", order)).toBeNull();
+  });
+
+  test("follows the given order, not the files array order", () => {
+    const shuffled = [
+      { path: "c", changedBy: [3] },
+      { path: "a", changedBy: [1] },
+      { path: "b", changedBy: [2] },
+    ];
+    const approvals = new Map();
+    expect(nextUnapproved(shuffled, approvals, "a", order)).toBe("b");
   });
 });

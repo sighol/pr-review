@@ -34,16 +34,22 @@ export function approveThrough(changedBy: readonly number[], through: number = l
   return new Set(changedBy.filter((c) => c <= through));
 }
 
-/** The next file (wrapping) after `current` that still has unapproved commits. */
+/**
+ * The next file (wrapping) after `current` that still has unapproved commits, in `order`
+ * (the file-tree order the UI displays, not necessarily `files`' own order).
+ */
 export function nextUnapproved(
   files: readonly { path: string; changedBy: readonly number[] }[],
   approvals: ReadonlyMap<string, ReadonlySet<number>>,
   current: string,
+  order: readonly string[],
 ): string | null {
-  const start = files.findIndex((f) => f.path === current);
-  for (let i = 1; i <= files.length; i++) {
-    const f = files[(start + i) % files.length];
-    if (f.path !== current && !isFullyApproved(f.changedBy, approvals.get(f.path))) return f.path;
+  const byPath = new Map(files.map((f) => [f.path, f]));
+  const start = order.indexOf(current);
+  for (let i = 1; i <= order.length; i++) {
+    const path = order[(start + i) % order.length];
+    const f = byPath.get(path);
+    if (f && f.path !== current && !isFullyApproved(f.changedBy, approvals.get(f.path))) return f.path;
   }
   return null;
 }

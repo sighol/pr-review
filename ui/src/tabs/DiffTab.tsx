@@ -40,6 +40,8 @@ export function DiffTab() {
   const data = useRangeData(file, range);
   const anchors = useThreadAnchors(file, range, data, threads);
 
+  const fileOrder = useMemo(() => flattenFiles(buildFileTree(files.map((f) => f.path))), [files]);
+
   useEffect(() => {
     if (tab !== "diff" || !file) return;
     const onKey = (e: KeyboardEvent) => {
@@ -52,14 +54,13 @@ export function DiffTab() {
           unapproveFile(file);
         } else {
           approveFile(file);
-          const next = nextUnapproved(files, approvals, file.path);
+          const next = nextUnapproved(files, approvals, file.path, fileOrder);
           if (next) setCurrentFile(next);
         }
         return;
       }
       if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
-        const order = flattenFiles(buildFileTree(files.map((f) => f.path)));
-        const neighbor = order[order.indexOf(file.path) + (e.key === "ArrowLeft" ? -1 : 1)];
+        const neighbor = fileOrder[fileOrder.indexOf(file.path) + (e.key === "ArrowLeft" ? -1 : 1)];
         if (neighbor) {
           e.preventDefault();
           setCurrentFile(neighbor);
@@ -68,14 +69,14 @@ export function DiffTab() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [tab, file, approvals, files, approveFile, unapproveFile, setCurrentFile]);
+  }, [tab, file, approvals, files, fileOrder, approveFile, unapproveFile, setCurrentFile]);
 
   if (!file || !range) return null;
 
   const approved = approvals.get(file.path);
   const fully = isFullyApproved(file.changedBy, approved);
   const latest = latestCommit(file.changedBy);
-  const next = nextUnapproved(files, approvals, file.path);
+  const next = nextUnapproved(files, approvals, file.path, fileOrder);
   const ok = commentable(range, file.changedBy);
   const ready = !!data && data.key === rangeKey(file, range);
   const unchanged = stateOf(file.changedBy, range.from) === stateOf(file.changedBy, range.to);
