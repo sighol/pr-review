@@ -59,6 +59,15 @@ pub struct Resolution {
     pub reopened: bool,
 }
 
+/// A detected force-push: the previously known head was not an ancestor of this one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct ForcePush {
+    pub old_oid: String,
+    pub new_oid: String,
+    pub detected_at: String,
+}
+
 /// Everything saved for one PR.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -68,6 +77,7 @@ pub struct SavedState {
     pub replies: Vec<Reply>,
     pub resolutions: Vec<Resolution>,
     pub review_body: String,
+    pub force_pushes: Vec<ForcePush>,
 }
 
 /// The review state database, scoped to one PR. All PRs share one sqlite file.
@@ -177,13 +187,71 @@ impl Db {
         .await?
         .map(|row| row.get("body"))
         .unwrap_or_default();
+        let force_pushes = sqlx::query_as(
+            "SELECT old_oid, new_oid, detected_at FROM force_pushes
+             WHERE owner = ?1 AND repo = ?2 AND pr_number = ?3 ORDER BY detected_at, new_oid",
+        )
+        .bind(owner)
+        .bind(repo)
+        .bind(number)
+        .fetch_all(&self.pool)
+        .await?;
         Ok(SavedState {
             approvals,
             drafts,
             replies,
             resolutions,
             review_body,
+            force_pushes,
         })
+    }
+
+    /// The head oid last recorded for this PR, or None if it was never recorded (first open).
+    pub async fn known_head(&self) -> Result<Option<String>> {
+        let (owner, repo, number) = self.pr();
+        let row = sqlx::query(
+            "SELECT head_oid FROM pr_heads WHERE owner = ?1 AND repo = ?2 AND pr_number = ?3",
+        )
+        .bind(owner)
+        .bind(repo)
+        .bind(number)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|r| r.get("head_oid")))
+    }
+
+    /// Records `head_oid` as the one last seen for this PR, overwriting any previous value.
+    pub async fn set_known_head(&self, head_oid: &str) -> Result<()> {
+        let (owner, repo, number) = self.pr();
+        sqlx::query(
+            "INSERT INTO pr_heads (owner, repo, pr_number, head_oid) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT (owner, repo, pr_number) DO UPDATE SET head_oid = excluded.head_oid",
+        )
+        .bind(owner)
+        .bind(repo)
+        .bind(number)
+        .bind(head_oid)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Appends a detected force-push to the permanent log.
+    pub async fn record_force_push(&self, old_oid: &str, new_oid: &str) -> Result<()> {
+        let (owner, repo, number) = self.pr();
+        sqlx::query(
+            "INSERT INTO force_pushes (owner, repo, pr_number, old_oid, new_oid)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT (owner, repo, pr_number, new_oid) DO NOTHING",
+        )
+        .bind(owner)
+        .bind(repo)
+        .bind(number)
+        .bind(old_oid)
+        .bind(new_oid)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 
     /// Replaces the approved commits of one file (an empty list unapproves it).
@@ -581,6 +649,36 @@ mod tests {
 
         db.set_review_body("").await.unwrap();
         assert_eq!(db.load().await.unwrap().review_body, "");
+    }
+
+    #[tokio::test]
+    async fn known_head_is_none_until_set_and_then_overwrites() {
+        let db = memory_db().await;
+        assert_eq!(db.known_head().await.unwrap(), None);
+        db.set_known_head("h1").await.unwrap();
+        assert_eq!(db.known_head().await.unwrap(), Some("h1".into()));
+        db.set_known_head("h2").await.unwrap();
+        assert_eq!(db.known_head().await.unwrap(), Some("h2".into()));
+    }
+
+    #[tokio::test]
+    async fn force_pushes_accumulate_and_a_repeat_is_not_duplicated() {
+        let db = memory_db().await;
+        db.record_force_push("h1", "h2").await.unwrap();
+        db.record_force_push("h2", "h3").await.unwrap();
+        db.record_force_push("h1", "h2").await.unwrap();
+        let pairs: Vec<_> = db
+            .load()
+            .await
+            .unwrap()
+            .force_pushes
+            .into_iter()
+            .map(|f| (f.old_oid, f.new_oid))
+            .collect();
+        assert_eq!(
+            pairs,
+            vec![("h1".into(), "h2".into()), ("h2".into(), "h3".into())]
+        );
     }
 
     #[tokio::test]

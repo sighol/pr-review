@@ -474,6 +474,7 @@ pub fn run() {
             opened.manifest.base.clone(),
         )
         .await?;
+        pr::record_head(&db, &opened.repo, &opened.manifest.head).await?;
         anyhow::Ok((opened, db))
     })
     .unwrap_or_else(|e| exit_with(&format!("error: {e:#}"), 1));

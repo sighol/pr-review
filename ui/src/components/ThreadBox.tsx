@@ -85,6 +85,19 @@ export function ThreadBox({ thread, expanded = false, preview = false, outdatedA
       </div>
       {thread.comments.map((c, i) => {
         const isNew = newFrom !== null && i >= newFrom;
+        if (c.system) {
+          return (
+            <div key={c.id} className="thread-item">
+              {i === newFrom && <div className="new-divider">New since you resolved</div>}
+              <div className={`thread-comment system-event${isNew ? " new" : ""}`}>
+                <div className="comment-head">
+                  <strong>Force push</strong> · {c.body} · {c.when}
+                  {isNew && <span className="badge-new inline">NEW</span>}
+                </div>
+              </div>
+            </div>
+          );
+        }
         return (
           <div key={c.id} className="thread-item">
             {i === newFrom && <div className="new-divider">New since you resolved</div>}

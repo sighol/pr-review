@@ -95,6 +95,8 @@ export interface SavedState {
   replies: { threadId: string; body: string }[];
   resolutions: { threadId: string; resolvedThrough: string | null; reopened: boolean }[];
   reviewBody: string;
+  /** Force-pushes (history rewrites) detected across restarts, oldest first. */
+  forcePushes: { oldOid: string; newOid: string; detectedAt: string }[];
 }
 
 /** The saved review state, or null in a browser, where nothing is persisted. */

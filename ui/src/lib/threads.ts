@@ -15,6 +15,8 @@ export interface FakeComment {
   url?: string;
   /** Set when this is a submitted review's own summary, not a plain comment. */
   reviewState?: ReviewState;
+  /** Set for a synthetic, no-author entry (e.g. a detected force-push) rather than a real comment. */
+  system?: boolean;
 }
 
 export interface FakeThread {
@@ -87,6 +89,55 @@ export interface Resolution {
 }
 
 export const CONVERSATION_ID = "conversation";
+
+/** A force-push (history rewrite) detected across restarts, as the backend sends it. */
+export interface ForcePush {
+  oldOid: string;
+  newOid: string;
+  detectedAt: string;
+}
+
+const short = (oid: string) => oid.slice(0, 7);
+
+function forcePushComment(fp: ForcePush, now: number): FakeComment {
+  return {
+    id: `force-push-${fp.newOid}`,
+    author: "",
+    when: relativeTime(fp.detectedAt, now),
+    createdAt: fp.detectedAt,
+    body: `${short(fp.oldOid)} → ${short(fp.newOid)}`,
+    system: true,
+  };
+}
+
+/**
+ * Splices detected force-pushes into the conversation thread as system entries (synthesizing
+ * the thread if the PR has no real conversation comments), sorted with the real comments by
+ * time, so the thread's existing resolve-through-last-comment logic treats a force-push like
+ * any other new activity: it reopens the thread, and resolving again marks it as seen.
+ */
+export function mergeForcePushes(threads: FakeThread[], forcePushes: ForcePush[], now: number): FakeThread[] {
+  if (forcePushes.length === 0) return threads;
+  const extra = forcePushes.map((fp) => forcePushComment(fp, now));
+  const byTime = (a: FakeComment, b: FakeComment) => (a.createdAt ?? "").localeCompare(b.createdAt ?? "");
+  const existing = threads.find((t) => t.id === CONVERSATION_ID);
+  if (!existing) {
+    const conversation: FakeThread = {
+      id: CONVERSATION_ID,
+      file: null,
+      side: "new",
+      line: null,
+      originalLine: 0,
+      commit: 0,
+      githubResolved: false,
+      comments: extra,
+    };
+    return [...threads, conversation];
+  }
+  return threads.map((t) =>
+    t.id === CONVERSATION_ID ? { ...t, comments: [...t.comments, ...extra].sort(byTime) } : t,
+  );
+}
 
 const REVIEW_VERDICT_LABEL: Record<ReviewState, string> = {
   APPROVED: "Approved",

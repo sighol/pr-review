@@ -70,6 +70,15 @@ pub async fn merge_base(repo: &Path, a: &str, b: &str) -> Result<String> {
     Ok(git(repo, &["merge-base", a, b]).await?.trim().to_string())
 }
 
+/// Whether `ancestor` is reachable from `descendant`: true after a normal push (which only adds
+/// commits on top), false after a force-push that rewrote history. If `ancestor` is no longer a
+/// valid object in this repo (e.g. pruned after being force-pushed away), this conservatively
+/// returns false rather than erroring, since the object being gone is itself a sign of a rewrite.
+pub async fn is_ancestor(repo: &Path, ancestor: &str, descendant: &str) -> Result<bool> {
+    let out = run(repo, &["merge-base", "--is-ancestor", ancestor, descendant]).await?;
+    Ok(out.status.success())
+}
+
 /// Commits in `base..head`, oldest first.
 pub async fn commits_in_range(repo: &Path, base: &str, head: &str) -> Result<Vec<Commit>> {
     let format = format!("--format=%H{FIELD_SEP}%s");

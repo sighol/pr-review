@@ -22,7 +22,15 @@ import {
   type SubmitResult,
 } from "./lib/backend";
 import { formatDirectives, type Directives } from "./lib/directives";
-import { CONVERSATION_ID, lastCommentId, threadFromJson, type FakeThread, type PrInfo, type Resolution } from "./lib/threads";
+import {
+  CONVERSATION_ID,
+  lastCommentId,
+  mergeForcePushes,
+  threadFromJson,
+  type FakeThread,
+  type PrInfo,
+  type Resolution,
+} from "./lib/threads";
 
 export type { Tab } from "./lib/route";
 
@@ -199,7 +207,9 @@ export function StoreProvider({
 }) {
   const headN = commits.length;
   // Threads are replaced after submitting a review; callbacks that never re-run read the ref.
-  const [threads, setThreads] = useState(initialThreads);
+  const [threads, setThreads] = useState(() =>
+    saved ? mergeForcePushes(initialThreads, saved.forcePushes, Date.now()) : initialThreads,
+  );
   const [pr, setPr] = useState(initialPr);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { firstNewIndex, isResolved, replacedLines, type FakeThread } from "./threads";
+import { CONVERSATION_ID, firstNewIndex, isResolved, mergeForcePushes, replacedLines, type FakeThread } from "./threads";
 
 const comment = (id: string) => ({ id, author: "a", when: "now", body: "" });
 const thread = (ids: string[]): FakeThread => ({
@@ -60,5 +60,44 @@ describe("lines a suggestion replaces", () => {
 
   test("lines past the end of the file give no lines", () => {
     expect(replacedLines({ side: "new", line: 40, startLine: 38 }, text)).toEqual([]);
+  });
+});
+
+describe("merging detected force-pushes into the conversation", () => {
+  const conversation = (ids: string[]): FakeThread => ({ ...thread(ids), id: CONVERSATION_ID, file: null });
+  const fp = (oldOid: string, newOid: string, detectedAt: string) => ({ oldOid, newOid, detectedAt });
+
+  test("no force-pushes leaves the threads untouched", () => {
+    const threads = [conversation(["c1"])];
+    expect(mergeForcePushes(threads, [], 0)).toBe(threads);
+  });
+
+  test("a force-push is appended as a no-author system comment on the conversation", () => {
+    const threads = [conversation(["c1"])];
+    const merged = mergeForcePushes(threads, [fp("aaaaaaa1", "bbbbbbb2", "2026-01-01T00:00:00.000Z")], 0);
+    const convo = merged.find((t) => t.id === CONVERSATION_ID)!;
+    expect(convo.comments.map((c) => c.id)).toEqual(["c1", "force-push-bbbbbbb2"]);
+    const synthetic = convo.comments[1]!;
+    expect(synthetic.system).toBe(true);
+    expect(synthetic.author).toBe("");
+    expect(synthetic.body).toContain("aaaaaaa");
+    expect(synthetic.body).toContain("bbbbbbb");
+  });
+
+  test("force-pushes interleave with real comments by time", () => {
+    const early = { ...conversation(["c1"]).comments[0]!, createdAt: "2026-01-01T00:00:00.000Z" };
+    const late = { id: "c2", author: "a", when: "now", createdAt: "2026-03-01T00:00:00.000Z", body: "" };
+    const threads = [{ ...conversation([]), comments: [early, late] }];
+    const merged = mergeForcePushes(threads, [fp("a", "b", "2026-02-01T00:00:00.000Z")], 0);
+    expect(merged[0]!.comments.map((c) => c.id)).toEqual(["c1", "force-push-b", "c2"]);
+  });
+
+  test("synthesizes the conversation thread when the PR has no real comments", () => {
+    const threads: FakeThread[] = [thread(["c1"])];
+    const merged = mergeForcePushes(threads, [fp("a", "b", "2026-01-01T00:00:00.000Z")], 0);
+    expect(merged).toHaveLength(2);
+    const convo = merged.find((t) => t.id === CONVERSATION_ID)!;
+    expect(convo.file).toBeNull();
+    expect(convo.comments.map((c) => c.id)).toEqual(["force-push-b"]);
   });
 });
