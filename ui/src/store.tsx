@@ -15,7 +15,6 @@ import {
 import { parseLine, parseRoute, routeUrl, type Route, type Tab } from "./lib/route";
 import {
   persist,
-  refreshManifest,
   submitReview as sendReview,
   type ReviewEvent,
   type SavedState,
@@ -95,8 +94,8 @@ interface Store {
   commits: Commit[];
   threads: FakeThread[];
   pr: PrInfo;
-  /** Re-fetches the PR's status and discussion from GitHub. No-op in a browser. */
-  refreshDiscussion: () => Promise<void>;
+  /** Re-fetches the whole PR, the same as closing and reopening the app. No-op in a browser. */
+  refresh: () => void;
   refreshing: boolean;
   refreshError: string | null;
 
@@ -195,6 +194,9 @@ export function StoreProvider({
   threads: initialThreads,
   pr: initialPr,
   saved,
+  refresh = () => {},
+  refreshing = false,
+  refreshError = null,
   children,
 }: {
   files: FileData[];
@@ -203,6 +205,10 @@ export function StoreProvider({
   pr: PrInfo;
   /** Review state from the database, or null (browser fixtures) to start from the seeded prototype state. */
   saved: SavedState | null;
+  /** Re-fetches the whole PR; owned by the caller, since it reloads `files`/`commits` too. */
+  refresh?: () => void;
+  refreshing?: boolean;
+  refreshError?: string | null;
   children: ReactNode;
 }) {
   const headN = commits.length;
@@ -210,25 +216,7 @@ export function StoreProvider({
   const [threads, setThreads] = useState(() =>
     saved ? mergeForcePushes(initialThreads, saved.forcePushes, Date.now()) : initialThreads,
   );
-  const [pr, setPr] = useState(initialPr);
-  const [refreshing, setRefreshing] = useState(false);
-  const [refreshError, setRefreshError] = useState<string | null>(null);
-  const refreshDiscussion = useCallback(async () => {
-    setRefreshing(true);
-    setRefreshError(null);
-    try {
-      const manifest = await refreshManifest();
-      if (manifest?.pr) setPr(manifest.pr);
-      if (manifest?.threads) {
-        const now = Date.now();
-        setThreads(manifest.threads.map((t) => threadFromJson(t, now)));
-      }
-    } catch (e) {
-      setRefreshError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setRefreshing(false);
-    }
-  }, []);
+  const pr = initialPr;
   const threadsRef = useRef(threads);
   threadsRef.current = threads;
   const fileNames = useMemo(() => new Set(files.map((f) => f.name)), [files]);
@@ -557,7 +545,7 @@ export function StoreProvider({
       commits,
       threads,
       pr,
-      refreshDiscussion,
+      refresh,
       refreshing,
       refreshError,
       approvals,
@@ -598,7 +586,7 @@ export function StoreProvider({
       commits,
       threads,
       pr,
-      refreshDiscussion,
+      refresh,
       refreshing,
       refreshError,
       approvals,

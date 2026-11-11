@@ -31,6 +31,11 @@ function cached(key: string, load: () => Promise<string>): Promise<string> {
   return p;
 }
 
+/** Drops every cached file text/diff: a refresh can shift which commit a state number means. */
+export function clearFileCache() {
+  cache.clear();
+}
+
 // Commit oid of each file state: state 0 is the PR base, state n is commit n.
 let stateOids: string[] = [];
 
@@ -42,11 +47,18 @@ export async function loadManifest(): Promise<Manifest> {
   return manifest;
 }
 
-/** Re-fetches the PR's status and discussion (not its commits/files) from GitHub. Resolves to null in a browser. */
+/**
+ * Re-fetches the PR exactly like opening it fresh would: git (new commits/files, force-push
+ * detection) and GitHub (metadata, discussion). Resolves to null in a browser, where nothing is
+ * fetched. Updates `stateOids` like `loadManifest`, since a refresh can change what a state
+ * number means.
+ */
 export async function refreshManifest(): Promise<Manifest | null> {
   if (!inTauri()) return null;
   const { invoke } = await import("@tauri-apps/api/core");
-  return invoke<Manifest>("refresh");
+  const manifest = await invoke<Manifest>("refresh");
+  stateOids = [manifest.base, ...manifest.commits.map((c) => c.oid)];
+  return manifest;
 }
 
 /** Opens the file in the given editor program (e.g. `code`, `zed`, `idea`). No-op in a browser. */

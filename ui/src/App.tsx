@@ -1,6 +1,6 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { FatalError } from "./components/ErrorBoundary";
-import { fileText, loadManifest, loadSaved, type SavedState } from "./lib/backend";
+import { clearFileCache, fileText, loadManifest, loadSaved, refreshManifest, type Manifest, type SavedState } from "./lib/backend";
 import { describeError, describeViewport, log } from "./lib/log";
 import { routeUrl } from "./lib/route";
 import { ALL_THREADS, PR, isResolved, newCount, threadFromJson, type FakeThread, type PrInfo } from "./lib/threads";
@@ -17,16 +17,7 @@ interface Loaded {
   saved: SavedState | null;
 }
 
-export async function loadAll(): Promise<Loaded> {
-  const started = performance.now();
-  const elapsed = () => `${Math.round(performance.now() - started)}ms`;
-  log("info", "loading the PR from the backend");
-  const manifest = await loadManifest();
-  log(
-    "info",
-    `got the manifest: ${manifest.files.length} files, ${manifest.commits.length} commits, ` +
-      `${manifest.threads ? `${manifest.threads.length} threads` : "no threads"} (${elapsed()})`,
-  );
+async function buildLoaded(manifest: Manifest, elapsed: () => string): Promise<Loaded> {
   const files = await Promise.all(
     manifest.files.map(
       async (f): Promise<FileData> => ({
@@ -61,6 +52,39 @@ export async function loadAll(): Promise<Loaded> {
   };
 }
 
+export async function loadAll(): Promise<Loaded> {
+  const started = performance.now();
+  const elapsed = () => `${Math.round(performance.now() - started)}ms`;
+  log("info", "loading the PR from the backend");
+  const manifest = await loadManifest();
+  log(
+    "info",
+    `got the manifest: ${manifest.files.length} files, ${manifest.commits.length} commits, ` +
+      `${manifest.threads ? `${manifest.threads.length} threads` : "no threads"} (${elapsed()})`,
+  );
+  return buildLoaded(manifest, elapsed);
+}
+
+/**
+ * Re-fetches the whole PR exactly like opening it fresh would (new commits, files, force-push
+ * detection) and rebuilds everything derived from it. Resolves to null in a browser, where
+ * nothing is fetched and the fixtures never change.
+ */
+async function reloadAll(): Promise<Loaded | null> {
+  const started = performance.now();
+  const elapsed = () => `${Math.round(performance.now() - started)}ms`;
+  log("info", "refreshing the PR from the backend");
+  clearFileCache();
+  const manifest = await refreshManifest();
+  if (!manifest) return null;
+  log(
+    "info",
+    `refreshed: ${manifest.files.length} files, ${manifest.commits.length} commits, ` +
+      `${manifest.threads ? `${manifest.threads.length} threads` : "no threads"} (${elapsed()})`,
+  );
+  return buildLoaded(manifest, elapsed);
+}
+
 function Panel({ id, children }: { id: Tab; children: ReactNode }) {
   const { tab } = useStore();
   return (
@@ -71,8 +95,7 @@ function Panel({ id, children }: { id: Tab; children: ReactNode }) {
 }
 
 function Header() {
-  const { tab, setTab, currentFile, threads, resolutions, pr, refreshDiscussion, refreshing, refreshError } =
-    useStore();
+  const { tab, setTab, currentFile, threads, resolutions, pr, refresh, refreshing, refreshError } = useStore();
   const payload = useReviewPayload();
   const pending = payload.comments.length + payload.replies.length;
   const withNew = threads.filter((t) => {
@@ -109,7 +132,12 @@ function Header() {
         ))}
       </nav>
       {refreshError && <span className="refresh-error">{refreshError}</span>}
-      <button className="action" onClick={refreshDiscussion} disabled={refreshing} title="Re-fetch PR status and discussion from GitHub">
+      <button
+        className="action"
+        onClick={refresh}
+        disabled={refreshing}
+        title="Re-fetch the PR, the same as closing and reopening the app"
+      >
         {refreshing ? "Refreshing…" : "Refresh"}
       </button>
     </header>
@@ -119,6 +147,9 @@ function Header() {
 export function App() {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
   useEffect(() => {
     loadAll()
       .then(setLoaded)
@@ -127,6 +158,19 @@ export function App() {
         log("error", `loading the PR failed: ${details}`);
         setError(details);
       });
+  }, []);
+  const refresh = useCallback(() => {
+    setRefreshing(true);
+    setRefreshError(null);
+    reloadAll()
+      .then((fresh) => {
+        if (fresh) {
+          setLoaded(fresh);
+          setRefreshKey((k) => k + 1);
+        }
+      })
+      .catch((e) => setRefreshError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setRefreshing(false));
   }, []);
   useEffect(() => {
     if (loaded) log("info", `rendered the PR. ${describeViewport()}`);
@@ -150,11 +194,15 @@ export function App() {
 
   return (
     <StoreProvider
+      key={refreshKey}
       files={loaded.files}
       commits={loaded.commits}
       threads={loaded.threads}
       pr={loaded.pr}
       saved={loaded.saved}
+      refresh={refresh}
+      refreshing={refreshing}
+      refreshError={refreshError}
     >
       <div className="app">
         <Header />

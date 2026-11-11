@@ -10,7 +10,7 @@ use pr_review_core::db::{Db, Draft, SavedState};
 use pr_review_core::directives::Directives;
 use pr_review_core::manifest::Manifest;
 use pr_review_core::review::{ReviewInput, SubmitResult};
-use pr_review_core::{git, github, pr, review};
+use pr_review_core::{git, pr, review};
 use tauri::{Emitter, Manager, State};
 use tracing::{debug, info, warn};
 use tracing_subscriber::fmt::time::uptime;
@@ -185,22 +185,22 @@ fn open_pr(state: State<'_, AppState>) -> Manifest {
     m.clone()
 }
 
-/// Re-fetches the PR's metadata and discussion (not its commits/files, so a new push still needs
-/// a restart) and updates the stored manifest. See "Not built yet" in CLAUDE.md.
+/// Re-fetches the PR exactly like opening it did: git (new commits/files, force-push detection)
+/// and GitHub (metadata, discussion), replacing the stored manifest. The same effect as closing
+/// and reopening the app.
 #[tauri::command]
 async fn refresh(state: State<'_, AppState>, window: tauri::Window) -> Result<Manifest, String> {
     let key = state.db.key().clone();
     logged(&format!("refresh PR #{}", key.number), async {
-        let (info, (raw_threads, conversation, reviews)) = tokio::try_join!(
-            github::pr_view(&key.owner, &key.repo, key.number),
-            github::fetch_discussion(&key.owner, &key.repo, key.number),
-        )?;
+        let opened = pr::open_pr(&state.repo, key.number).await?;
+        pr::record_head(&state.db, &opened.repo, &opened.manifest.head).await?;
         let mut manifest = state.manifest.lock().unwrap();
-        manifest.set_threads(raw_threads, conversation, reviews);
-        manifest.pr = Some(info.meta);
+        *manifest = opened.manifest;
         info!(
-            "refreshed PR #{}: {} threads",
+            "refreshed PR #{}: {} commits, {} files, {} threads",
             key.number,
+            manifest.commits.len(),
+            manifest.files.len(),
             manifest.threads.as_ref().map_or(0, Vec::len)
         );
         let title = window_title(
