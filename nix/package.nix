@@ -57,7 +57,7 @@ let
     '';
     outputHashMode = "recursive";
     outputHashAlgo = "sha256";
-    outputHash = "sha256-0W2oZi0VLDcNNwnFnVgE9TGa0WdPOzFg2f32j4GFIqI=";
+    outputHash = "sha256-mYaDVgXqVIuSWPD/vVHHfSFxXjYqN4IKOxRJhOcpyB0=";
   };
 
   # The built frontend (`ui/dist`), which Tauri embeds into the binary.
