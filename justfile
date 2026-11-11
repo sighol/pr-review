@@ -12,7 +12,7 @@ test-ui:
     cd ui && bun test
 
 run-dev:
-    cargo tauri dev -- -- --wait 3
+    cargo tauri dev -- -- --wait 6
 
 # Builds with Tauri's bundler and installs what it would put in the .deb: the binary in
 # ~/.cargo/bin, and the desktop entry and icons in ~/.local/share (so Wayland shows the app's icon).
