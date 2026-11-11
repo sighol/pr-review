@@ -1,11 +1,14 @@
+use std::collections::HashMap;
 use std::future::Future;
 use std::path::PathBuf;
+use std::sync::Mutex;
 use std::time::Instant;
 
 use pr_review_core::db::{Db, Draft, SavedState};
 use pr_review_core::manifest::Manifest;
 use pr_review_core::review::SubmitResult;
-use pr_review_core::{git, pr, review};
+use pr_review_core::threads::build_threads;
+use pr_review_core::{git, github, pr, review};
 use tauri::State;
 use tracing::{debug, info, warn};
 use tracing_subscriber::EnvFilter;
@@ -15,7 +18,7 @@ const USAGE: &str = "usage: pr-review <PR number>\n\nRun it inside a clone of th
 
 struct AppState {
     repo: PathBuf,
-    manifest: Manifest,
+    manifest: Mutex<Manifest>,
     db: Db,
 }
 
@@ -74,7 +77,7 @@ fn exit_with(message: &str, code: i32) -> ! {
 
 #[tauri::command]
 fn open_pr(state: State<'_, AppState>) -> Manifest {
-    let m = &state.manifest;
+    let m = state.manifest.lock().unwrap();
     info!(
         "frontend asked for the PR: sending {} commits, {} files, {} threads",
         m.commits.len(),
@@ -82,6 +85,31 @@ fn open_pr(state: State<'_, AppState>) -> Manifest {
         m.threads.as_ref().map_or(0, Vec::len)
     );
     m.clone()
+}
+
+/// Re-fetches the PR's metadata and discussion (not its commits/files, so a new push still needs
+/// a restart) and updates the stored manifest. See "Not built yet" in CLAUDE.md.
+#[tauri::command]
+async fn refresh(state: State<'_, AppState>) -> Result<Manifest, String> {
+    let key = state.db.key().clone();
+    logged(&format!("refresh PR #{}", key.number), async {
+        let (info, (raw_threads, conversation)) = tokio::try_join!(
+            github::pr_view(&key.owner, &key.repo, key.number),
+            github::fetch_discussion(&key.owner, &key.repo, key.number),
+        )?;
+        let mut manifest = state.manifest.lock().unwrap();
+        let commit_numbers: HashMap<&str, usize> =
+            manifest.commits.iter().map(|c| (c.oid.as_str(), c.n)).collect();
+        manifest.threads = Some(build_threads(raw_threads, conversation, &commit_numbers));
+        manifest.pr = Some(info.meta);
+        info!(
+            "refreshed PR #{}: {} threads",
+            key.number,
+            manifest.threads.as_ref().map_or(0, Vec::len)
+        );
+        Ok(manifest.clone())
+    })
+    .await
 }
 
 /// Lets the frontend write to the same log (its errors and startup trace).
@@ -124,14 +152,13 @@ async fn file_diff(
 
 #[tauri::command]
 async fn saved_state(state: State<'_, AppState>) -> Result<SavedState, String> {
+    let (base, head) = {
+        let m = state.manifest.lock().unwrap();
+        (m.base.clone(), m.head.clone())
+    };
     logged(
         "saved_state",
-        review::load_saved(
-            &state.db,
-            &state.repo,
-            &state.manifest.base,
-            &state.manifest.head,
-        ),
+        review::load_saved(&state.db, &state.repo, &base, &head),
     )
     .await
 }
@@ -144,10 +171,13 @@ async fn acknowledge_draft(state: State<'_, AppState>, draft_key: String) -> Res
 #[tauri::command]
 async fn submit_review(state: State<'_, AppState>, event: String) -> Result<SubmitResult, String> {
     info!("submitting the review ({event})");
-    let m = &state.manifest;
+    let (base, head, commits) = {
+        let m = state.manifest.lock().unwrap();
+        (m.base.clone(), m.head.clone(), m.commits.clone())
+    };
     let result = logged(
         "submit_review",
-        review::submit_saved(&state.db, &state.repo, &m.base, &m.head, &m.commits, &event),
+        review::submit_saved(&state.db, &state.repo, &base, &head, &commits, &event),
     )
     .await;
     match &result {
@@ -343,11 +373,12 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(AppState {
             repo: opened.repo,
-            manifest: opened.manifest,
+            manifest: Mutex::new(opened.manifest),
             db,
         })
         .invoke_handler(tauri::generate_handler![
             open_pr,
+            refresh,
             frontend_log,
             file_text,
             file_diff,

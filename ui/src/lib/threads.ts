@@ -107,11 +107,14 @@ export function sortThreads(threads: FakeThread[], resolutions: ReadonlyMap<stri
   return [...threads].sort((a, b) => rank(a) - rank(b));
 }
 
+export type PrStatus = "draft" | "open" | "merged" | "closed";
+
 export interface PrInfo {
   number: number;
   title: string;
   author: string;
   body: string;
+  status: PrStatus;
 }
 
 /** The fake PR shown when running in a browser against fixtures. */
@@ -119,6 +122,7 @@ export const PR: PrInfo = {
   number: 128,
   title: "Thread review improvements, PR title in the grid, and repo discovery",
   author: "sigurd",
+  status: "merged",
   body: `## What
 
 A batch of quality-of-life changes to \`pr-review\`, mostly around the \`threads\` flow.

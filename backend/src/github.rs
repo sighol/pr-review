@@ -26,6 +26,26 @@ pub struct PrMeta {
     pub title: String,
     pub author: String,
     pub body: String,
+    pub status: PrStatus,
+}
+
+/// Where the PR stands on GitHub.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PrStatus {
+    Draft,
+    Open,
+    Merged,
+    Closed,
+}
+
+fn pr_status(state: &str, is_draft: bool) -> PrStatus {
+    match state {
+        "MERGED" => PrStatus::Merged,
+        "CLOSED" => PrStatus::Closed,
+        _ if is_draft => PrStatus::Draft,
+        _ => PrStatus::Open,
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -42,6 +62,8 @@ struct PrViewJson {
     body: String,
     author: Option<AuthorJson>,
     base_ref_name: String,
+    state: String,
+    is_draft: bool,
 }
 
 #[derive(Deserialize)]
@@ -63,6 +85,7 @@ fn parse_pr_view(json: &[u8]) -> Result<PrInfo> {
             title: v.title,
             body: v.body,
             author: ghost_if_none(v.author),
+            status: pr_status(&v.state, v.is_draft),
         },
         base_ref_name: v.base_ref_name,
     })
@@ -79,7 +102,7 @@ pub async fn pr_view(owner: &str, repo: &str, number: u64) -> Result<PrInfo> {
             "--repo",
             &format!("{owner}/{repo}"),
             "--json",
-            "number,title,body,author,baseRefName",
+            "number,title,body,author,baseRefName,state,isDraft",
         ])
         .output()
         .await
@@ -504,7 +527,7 @@ mod tests {
 
     #[test]
     fn parses_gh_pr_view_output() {
-        let json = br#"{"number":13486,"title":"Fix it","body":"Some **markdown**","author":{"login":"sigurd","name":"S"},"baseRefName":"master"}"#;
+        let json = br#"{"number":13486,"title":"Fix it","body":"Some **markdown**","author":{"login":"sigurd","name":"S"},"baseRefName":"master","state":"OPEN","isDraft":false}"#;
         assert_eq!(
             parse_pr_view(json).unwrap(),
             PrInfo {
@@ -513,6 +536,7 @@ mod tests {
                     title: "Fix it".into(),
                     author: "sigurd".into(),
                     body: "Some **markdown**".into(),
+                    status: PrStatus::Open,
                 },
                 base_ref_name: "master".into(),
             }
@@ -521,8 +545,26 @@ mod tests {
 
     #[test]
     fn deleted_author_becomes_ghost() {
-        let json = br#"{"number":1,"title":"t","body":"","author":null,"baseRefName":"main"}"#;
+        let json = br#"{"number":1,"title":"t","body":"","author":null,"baseRefName":"main","state":"OPEN","isDraft":false}"#;
         assert_eq!(parse_pr_view(json).unwrap().meta.author, "ghost");
+    }
+
+    #[test]
+    fn draft_pr_is_draft_even_though_open() {
+        let json = br#"{"number":1,"title":"t","body":"","author":null,"baseRefName":"main","state":"OPEN","isDraft":true}"#;
+        assert_eq!(parse_pr_view(json).unwrap().meta.status, PrStatus::Draft);
+    }
+
+    #[test]
+    fn merged_pr_status_wins_over_draft_flag() {
+        let json = br#"{"number":1,"title":"t","body":"","author":null,"baseRefName":"main","state":"MERGED","isDraft":false}"#;
+        assert_eq!(parse_pr_view(json).unwrap().meta.status, PrStatus::Merged);
+    }
+
+    #[test]
+    fn closed_pr_status() {
+        let json = br#"{"number":1,"title":"t","body":"","author":null,"baseRefName":"main","state":"CLOSED","isDraft":false}"#;
+        assert_eq!(parse_pr_view(json).unwrap().meta.status, PrStatus::Closed);
     }
 
     #[test]
