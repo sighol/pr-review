@@ -1,6 +1,8 @@
 import type { ThemedToken } from "shiki";
 import { useEffect, useMemo, useState, type ComponentProps } from "react";
 import ReactMarkdown from "react-markdown";
+import rehypeRaw from "rehype-raw";
+import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 import { segmentsFor, wordRanges, type Range } from "../lib/diff";
 import { tokenizeLang } from "../lib/highlight";
@@ -106,6 +108,10 @@ export function Markdown({ text, fileLang, replaces }: Props) {
     <div className="markdown">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
+        // Raw HTML (tables, comments, <sub>, ...) is common in GitHub comments; rehype-raw parses it
+        // and rehype-sanitize's default (GitHub-like) schema strips anything unsafe, e.g. <script>
+        // or javascript: URLs, same as GitHub's own renderer would.
+        rehypePlugins={[rehypeRaw, rehypeSanitize]}
         components={{
           a: ({ href, children }) => <ExternalLink href={href}>{children}</ExternalLink>,
           pre: ({ children }) => <>{children}</>,
