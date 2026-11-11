@@ -180,6 +180,80 @@ mod tests {
         assert_eq!(evil.changed_by, vec![m.commits.len()]);
     }
 
+    /// A file added only during a merge's own conflict resolution (present in neither parent, so
+    /// it's genuinely new "at" the merge commit, like `evil.txt` above) is attributed to the
+    /// merge itself, not to a later, unrelated trailing commit. This is the PR this was filed
+    /// against: a trailing empty commit after the merge made the old "attribute to the last
+    /// commit" fallback point at the wrong commit.
+    #[tokio::test]
+    async fn a_file_added_by_a_merge_is_attributed_to_the_merge_not_a_later_commit() {
+        let repo = TestRepo::new();
+        repo.git(&["symbolic-ref", "HEAD", "refs/heads/main"]);
+        let base = repo.commit("base", &[("a.txt", Some("1\n"))]);
+        repo.git(&["checkout", "-q", "-b", "side"]);
+        repo.commit("side work", &[("side.txt", Some("s\n"))]);
+        repo.git(&["checkout", "-q", "-b", "pr", &base]);
+        repo.commit("pr work", &[("a.txt", Some("2\n"))]);
+        repo.git(&["merge", "--no-ff", "--no-commit", "-q", "side"]);
+        std::fs::write(repo.path().join(".envrc"), "export X=1\n").unwrap();
+        repo.git(&["add", "-A"]);
+        repo.git(&["commit", "-q", "-m", "merge side"]);
+        repo.git(&[
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "empty trailing commit",
+        ]);
+
+        let m = build_manifest(repo.path(), &base, "HEAD").await.unwrap();
+        assert_eq!(m.commits.len(), 4);
+        let envrc = m.files.iter().find(|f| f.path == ".envrc").unwrap();
+        assert_eq!(
+            envrc.changed_by,
+            vec![3],
+            "should be the merge commit, not the trailing commit 4"
+        );
+    }
+
+    /// A merge that brings the PR's own branch up to date with its base branch: a file the base
+    /// branch changed on its own, in between the PR's fork point and this merge, must not leak
+    /// into the manifest as a file of its own (it is identical between the recomputed base and
+    /// head, so `numstat` never surfaces it, regardless of what the first-parent diff reports for
+    /// the merge). A file that genuinely belongs to the PR stays attributed only to the commit
+    /// that actually touched it: diffed against its first parent (the PR's own previous tip),
+    /// the merge itself shows no further change to it.
+    #[tokio::test]
+    async fn merging_the_latest_base_branch_into_the_pr_does_not_leak_unrelated_files() {
+        let repo = TestRepo::new();
+        repo.git(&["symbolic-ref", "HEAD", "refs/heads/main"]);
+        repo.commit(
+            "base",
+            &[("shared.txt", Some("a\n")), ("pr.txt", Some("1\n"))],
+        );
+        repo.git(&["checkout", "-q", "-b", "pr"]);
+        repo.commit("pr work", &[("pr.txt", Some("2\n"))]);
+        repo.git(&["checkout", "-q", "main"]);
+        // The base branch advances on its own, unrelated to the PR.
+        let new_base = repo.commit("main moves on", &[("shared.txt", Some("b\n"))]);
+        repo.git(&["checkout", "-q", "pr"]);
+        repo.git(&["merge", "--no-ff", "-q", "-m", "merge main", "main"]);
+
+        // `fetch_pr` would recompute the PR's base as `new_base` once it is an ancestor of head.
+        let m = build_manifest(repo.path(), &new_base, "HEAD")
+            .await
+            .unwrap();
+        assert_eq!(m.commits.len(), 2, "should exclude main's own commit");
+        let paths: Vec<_> = m.files.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(
+            paths,
+            ["pr.txt"],
+            "shared.txt is unchanged since new_base and must not appear"
+        );
+        let pr_file = m.files.iter().find(|f| f.path == "pr.txt").unwrap();
+        assert_eq!(pr_file.changed_by, vec![1]);
+    }
+
     #[tokio::test]
     async fn a_renamed_file_is_one_file_touched_by_its_old_and_new_names_commits() {
         let repo = TestRepo::new();

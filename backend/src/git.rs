@@ -139,7 +139,11 @@ pub async fn numstat(repo: &Path, base: &str, head: &str) -> Result<BTreeMap<Str
     Ok(stats)
 }
 
-/// Paths touched by a single commit.
+/// Paths touched by a single commit, diffed against its first parent. For a non-merge commit
+/// that's its only parent, same as plain `diff-tree`. For a merge commit it matches what GitHub
+/// shows for that commit (the diff against the branch it was merged into, i.e. the side that
+/// was "already there"): the default, parent-less `diff-tree` behavior for a merge is to print
+/// nothing at all, which silently drops files a merge commit brought in from the other side.
 pub async fn files_in_commit(repo: &Path, oid: &str) -> Result<Vec<String>> {
     let out = git(
         repo,
@@ -150,6 +154,7 @@ pub async fn files_in_commit(repo: &Path, oid: &str) -> Result<Vec<String>> {
             "-r",
             "-z",
             "--no-renames",
+            &format!("{oid}^1"),
             oid,
         ],
     )
@@ -464,6 +469,26 @@ mod tests {
         assert_eq!(
             files_in_commit(repo.path(), &c2).await.unwrap(),
             vec!["dir/b.txt"]
+        );
+    }
+
+    /// A merge commit that cleanly brings in a file from the side merged in (not the branch it
+    /// was merged into) still reports that file: the default (parent-less) `diff-tree` behavior
+    /// for a merge is to report nothing at all.
+    #[tokio::test]
+    async fn files_in_commit_covers_a_file_brought_in_cleanly_by_a_merge() {
+        let repo = TestRepo::new();
+        repo.git(&["symbolic-ref", "HEAD", "refs/heads/main"]);
+        repo.commit("base", &[("a.txt", Some("1\n"))]);
+        repo.git(&["checkout", "-q", "-b", "side"]);
+        repo.commit("add envrc", &[(".envrc", Some("export X=1\n"))]);
+        repo.git(&["checkout", "-q", "main"]);
+        repo.git(&["merge", "--no-ff", "-q", "-m", "merge side", "side"]);
+        let merge = repo.git(&["rev-parse", "HEAD"]);
+
+        assert_eq!(
+            files_in_commit(repo.path(), &merge).await.unwrap(),
+            vec![".envrc"]
         );
     }
 
