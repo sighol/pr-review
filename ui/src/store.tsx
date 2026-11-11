@@ -38,6 +38,8 @@ export interface Commit {
   oid: string;
   short: string;
   subject: string;
+  /** What "state 0" (the PR base) means for a range ending at this commit; see `backend.ts`. */
+  floor: string;
 }
 
 export interface FileData {

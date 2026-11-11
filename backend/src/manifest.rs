@@ -62,12 +62,20 @@ impl Manifest {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ManifestCommit {
     /// 1-based position in the PR; state 0 of a file is the PR base.
     pub n: usize,
     pub oid: String,
     pub short: String,
     pub subject: String,
+    /// `merge_base(<the PR's base branch>, oid)`: what "state 0" (the PR base) means for a range
+    /// that ends at this commit. Equal to `Manifest.base` for every commit, *unless* an earlier
+    /// commit already merged the base branch in, in which case it jumps forward to whatever of
+    /// the base branch that merge absorbed. Needed because `Manifest.base` is only the floor as
+    /// of the *last* commit: using it for an earlier commit would diff that commit's own file
+    /// content against a base-branch point it never actually descended from.
+    pub floor: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -91,10 +99,12 @@ pub async fn build_manifest(repo: &Path, base_rev: &str, head_rev: &str) -> Resu
     let stats = git::numstat(repo, &base, &head).await?;
 
     let mut changed_by: HashMap<String, Vec<usize>> = HashMap::new();
+    let mut floors = Vec::with_capacity(commits.len());
     for (i, commit) in commits.iter().enumerate() {
         for path in git::files_in_commit(repo, &commit.oid).await? {
             changed_by.entry(path).or_default().push(i + 1);
         }
+        floors.push(git::merge_base(repo, &base, &commit.oid).await?);
     }
 
     let last_commit = commits.len();
@@ -132,12 +142,14 @@ pub async fn build_manifest(repo: &Path, base_rev: &str, head_rev: &str) -> Resu
 
     let commits = commits
         .into_iter()
+        .zip(floors)
         .enumerate()
-        .map(|(i, c)| ManifestCommit {
+        .map(|(i, (c, floor))| ManifestCommit {
             n: i + 1,
             short: c.oid.chars().take(7).collect(),
             oid: c.oid,
             subject: c.subject,
+            floor,
         })
         .collect();
 
@@ -302,6 +314,9 @@ mod tests {
             ]
         );
         assert_eq!(m.commits[0].short, c1[..7]);
+        // No commit in this PR merges the base branch back in, so every commit's floor is the
+        // same, plain PR base.
+        assert!(m.commits.iter().all(|c| c.floor == base));
 
         let files: Vec<_> = m
             .files
@@ -326,5 +341,51 @@ mod tests {
 
         let json = serde_json::to_value(&m).unwrap();
         assert_eq!(json["files"][0]["changedBy"], serde_json::json!([1, 3]));
+        assert_eq!(json["commits"][0]["floor"], serde_json::json!(base));
+    }
+
+    /// The real-world shape this was all written for: the PR branch merges its base branch in
+    /// partway through (absorbing a base-branch-only change to a file the PR's own earlier
+    /// commit also touches), then keeps going. Viewing "the PR's own first commit" must diff
+    /// against the PR's true fork point, not the base branch's later tip -- even though the
+    /// *overall* PR base (`Manifest.base`, used for `changed_by`/`stats`) correctly advances.
+    #[tokio::test]
+    async fn an_earlier_commits_floor_does_not_follow_a_later_merge_from_the_base_branch() {
+        let repo = TestRepo::new();
+        repo.git(&["symbolic-ref", "HEAD", "refs/heads/main"]);
+        let text: String = (1..=10).map(|i| format!("line {i}\n")).collect();
+        let fork_point = repo.commit("base", &[("shared.rs", Some(&text))]);
+        repo.git(&["checkout", "-q", "-b", "pr"]);
+        let c1 = repo.commit(
+            "pr's own tiny edit",
+            &[(
+                "shared.rs",
+                Some(&text.replace("line 1\n", "pr's line 1\n")),
+            )],
+        );
+        repo.git(&["checkout", "-q", "main"]);
+        // main advances on its own, independently touching the same file on a different line.
+        let new_base = repo.commit(
+            "main moves on",
+            &[(
+                "shared.rs",
+                Some(&text.replace("line 10\n", "main's line 10\n")),
+            )],
+        );
+        repo.git(&["checkout", "-q", "pr"]);
+        repo.git(&["merge", "--no-ff", "-q", "-m", "merge main", "main"]);
+
+        // `fetch_pr` would recompute the PR's base as `new_base` once it is an ancestor of head.
+        let m = build_manifest(repo.path(), &new_base, "HEAD")
+            .await
+            .unwrap();
+        assert_eq!(m.base, new_base);
+        assert_eq!(m.commits.len(), 2, "pr's own edit, then the merge");
+
+        // Commit 1 (the PR's own edit) must float against the true fork point, not `new_base`.
+        assert_eq!(m.commits[0].oid, c1);
+        assert_eq!(m.commits[0].floor, fork_point);
+        // The merge commit (last) floats against `new_base` itself, same as `Manifest.base`.
+        assert_eq!(m.commits[1].floor, new_base);
     }
 }

@@ -79,12 +79,21 @@ pub async fn is_ancestor(repo: &Path, ancestor: &str, descendant: &str) -> Resul
     Ok(out.status.success())
 }
 
-/// Commits in `base..head`, oldest first.
+/// Commits in `base..head`, oldest first, parents always before children (`--topo-order`): plain
+/// date order can put a commit after its own descendant when two commits share a committer
+/// timestamp (common after a rebase or a scripted/batch commit), which would make "commit N" an
+/// unstable, sometimes-backwards numbering.
 pub async fn commits_in_range(repo: &Path, base: &str, head: &str) -> Result<Vec<Commit>> {
     let format = format!("--format=%H{FIELD_SEP}%s");
     let out = git(
         repo,
-        &["log", "--reverse", &format, &format!("{base}..{head}")],
+        &[
+            "log",
+            "--reverse",
+            "--topo-order",
+            &format,
+            &format!("{base}..{head}"),
+        ],
     )
     .await?;
     Ok(out
@@ -139,12 +148,55 @@ pub async fn numstat(repo: &Path, base: &str, head: &str) -> Result<BTreeMap<Str
     Ok(stats)
 }
 
-/// Paths touched by a single commit, diffed against its first parent. For a non-merge commit
-/// that's its only parent, same as plain `diff-tree`. For a merge commit it matches what GitHub
-/// shows for that commit (the diff against the branch it was merged into, i.e. the side that
-/// was "already there"): the default, parent-less `diff-tree` behavior for a merge is to print
-/// nothing at all, which silently drops files a merge commit brought in from the other side.
+/// The parent oids of a commit, in order (empty for a root commit).
+async fn parents_of(repo: &Path, oid: &str) -> Result<Vec<String>> {
+    let out = git(repo, &["rev-list", "--parents", "-n", "1", oid]).await?;
+    Ok(out.split_whitespace().skip(1).map(String::from).collect())
+}
+
+/// The tree a plain, automatic merge of `p1` and `p2` would produce (git's own "ort" merge,
+/// entirely in the object database: no working tree or checkout involved), or `None` if the
+/// merge could not be attempted at all (e.g. unrelated histories). Still returns a tree when the
+/// automatic merge hit a conflict (conflict markers end up baked into the affected files), which
+/// is exactly what we want: diffing the real commit against this tells us what a human actually
+/// did beyond what git would have done on its own.
+async fn merge_tree(repo: &Path, p1: &str, p2: &str) -> Result<Option<String>> {
+    let out = run(repo, &["merge-tree", "--write-tree", p1, p2]).await?;
+    match out.status.code() {
+        Some(0) | Some(1) => {
+            let tree = String::from_utf8_lossy(&out.stdout)
+                .lines()
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .to_string();
+            Ok((!tree.is_empty()).then_some(tree))
+        }
+        _ => Ok(None),
+    }
+}
+
+/// Paths a commit changed beyond what git's own merge algorithm would have done automatically.
+/// For a normal, single-parent commit this is just its diff against that parent. For a merge
+/// commit, diffing against either parent directly is wrong both ways: the default (parent-less)
+/// `diff-tree` prints nothing at all for a merge, silently dropping content one side brought in
+/// cleanly; diffing against one specific parent shows everything the *other* side changed, even
+/// when the merge took it verbatim with no human involvement (e.g. "merge the base branch in").
+/// Diffing against the tree a plain `git merge` of the same two parents would have produced
+/// isolates exactly the part a human is responsible for: nothing, for a fully automatic merge
+/// (matches GitHub showing such a commit as empty); a cleanly-added file that exists on neither
+/// parent (a conflict-resolution add); or genuine conflict-resolution edits. Octopus merges (3+
+/// parents, rare) fall back to a first-parent diff rather than attempting an N-way merge.
 pub async fn files_in_commit(repo: &Path, oid: &str) -> Result<Vec<String>> {
+    let parents = parents_of(repo, oid).await?;
+    let against = match parents.as_slice() {
+        [] => return Ok(Vec::new()),
+        [p1] => p1.clone(),
+        [p1, p2] => merge_tree(repo, p1, p2)
+            .await?
+            .unwrap_or_else(|| p1.clone()),
+        [p1, ..] => p1.clone(),
+    };
     let out = git(
         repo,
         &[
@@ -154,7 +206,7 @@ pub async fn files_in_commit(repo: &Path, oid: &str) -> Result<Vec<String>> {
             "-r",
             "-z",
             "--no-renames",
-            &format!("{oid}^1"),
+            &against,
             oid,
         ],
     )
@@ -472,11 +524,12 @@ mod tests {
         );
     }
 
-    /// A merge commit that cleanly brings in a file from the side merged in (not the branch it
-    /// was merged into) still reports that file: the default (parent-less) `diff-tree` behavior
-    /// for a merge is to report nothing at all.
+    /// A merge that is 100% automatic (one side cleanly adds a file, the other side made no
+    /// conflicting change, nobody touched anything by hand) reports no files at all: nothing in
+    /// it is this commit's own doing, it is exactly what a plain `git merge` would have produced
+    /// on its own. This matches GitHub showing such a commit as having no changes.
     #[tokio::test]
-    async fn files_in_commit_covers_a_file_brought_in_cleanly_by_a_merge() {
+    async fn a_fully_automatic_merge_reports_no_files() {
         let repo = TestRepo::new();
         repo.git(&["symbolic-ref", "HEAD", "refs/heads/main"]);
         repo.commit("base", &[("a.txt", Some("1\n"))]);
@@ -484,6 +537,29 @@ mod tests {
         repo.commit("add envrc", &[(".envrc", Some("export X=1\n"))]);
         repo.git(&["checkout", "-q", "main"]);
         repo.git(&["merge", "--no-ff", "-q", "-m", "merge side", "side"]);
+        let merge = repo.git(&["rev-parse", "HEAD"]);
+
+        assert_eq!(
+            files_in_commit(repo.path(), &merge).await.unwrap(),
+            Vec::<String>::new()
+        );
+    }
+
+    /// A file added by hand as part of making the merge (present on neither parent, so no
+    /// automatic merge of the two parents could have produced it) is reported, since it really
+    /// is this commit's own doing.
+    #[tokio::test]
+    async fn a_file_added_by_hand_during_a_merge_is_reported() {
+        let repo = TestRepo::new();
+        repo.git(&["symbolic-ref", "HEAD", "refs/heads/main"]);
+        repo.commit("base", &[("a.txt", Some("1\n"))]);
+        repo.git(&["checkout", "-q", "-b", "side"]);
+        repo.commit("side work", &[("side.txt", Some("s\n"))]);
+        repo.git(&["checkout", "-q", "main"]);
+        repo.git(&["merge", "--no-ff", "--no-commit", "-q", "side"]);
+        std::fs::write(repo.path().join(".envrc"), "export X=1\n").unwrap();
+        repo.git(&["add", "-A"]);
+        repo.git(&["commit", "-q", "-m", "merge side"]);
         let merge = repo.git(&["rev-parse", "HEAD"]);
 
         assert_eq!(

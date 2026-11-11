@@ -28,7 +28,7 @@ async function buildLoaded(manifest: Manifest, elapsed: () => string): Promise<L
         added: f.added,
         removed: f.removed,
         changedBy: f.changedBy,
-        newText: await fileText(f, Math.max(...f.changedBy)),
+        newText: await fileText(f, Math.max(...f.changedBy), Math.max(...f.changedBy)),
       }),
     ),
   );

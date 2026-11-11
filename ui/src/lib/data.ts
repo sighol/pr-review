@@ -28,8 +28,8 @@ export async function loadRangeData(file: FileRef, range: CommitRange): Promise<
   const from = stateOf(file.changedBy, range.from);
   const to = stateOf(file.changedBy, range.to);
   const [oldText, newText, diffText] = await Promise.all([
-    fileText(file, from),
-    fileText(file, to),
+    fileText(file, from, range.to),
+    fileText(file, to, range.to),
     from === to ? Promise.resolve("") : fileDiff(file, from, to),
   ]);
   return { key: rangeKey(file, range), oldText, newText, diffText };
@@ -76,7 +76,7 @@ export function useThreadAnchors(
     const newLines = textToLines(data.newText);
     Promise.all(
       wanted.map(async (t) => {
-        const text = await fileText(file, stateOf(file.changedBy, t.commit));
+        const text = await fileText(file, stateOf(file.changedBy, t.commit), t.commit);
         return [t.id, mapLine(textToLines(text), newLines, t.originalLine).line] as const;
       }),
     )

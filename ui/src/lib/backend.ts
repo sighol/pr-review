@@ -36,28 +36,47 @@ export function clearFileCache() {
   cache.clear();
 }
 
-// Commit oid of each file state: state 0 is the PR base, state n is commit n.
+// Commit oid of each state n >= 1 (state n is commit n); state 0 has no single oid, see `floorOid`.
 let stateOids: string[] = [];
+// commits[n - 1].floor, i.e. what "state 0" means for a range ending at commit n.
+let commitFloors: string[] = [];
+let manifestBase = "";
+
+function setStateOids(manifest: Manifest) {
+  stateOids = manifest.commits.map((c) => c.oid);
+  commitFloors = manifest.commits.map((c) => c.floor);
+  manifestBase = manifest.base;
+}
+
+/**
+ * The oid "state 0" resolves to for a range ending at commit `asOf`: the PR base as of that
+ * point, which jumps forward if an earlier commit already merged the PR's base branch in (see
+ * `ManifestCommit::floor` on the backend). `asOf` 0 is the degenerate case of a range that never
+ * reaches any real commit; `manifestBase` is as good a fallback as any there.
+ */
+function floorOid(asOf: number): string {
+  return asOf >= 1 ? commitFloors[asOf - 1] : manifestBase;
+}
 
 export async function loadManifest(): Promise<Manifest> {
   if (!inTauri()) return fetch("/pr/manifest.json").then((r) => r.json());
   const { invoke } = await import("@tauri-apps/api/core");
   const manifest = await invoke<Manifest>("open_pr");
-  stateOids = [manifest.base, ...manifest.commits.map((c) => c.oid)];
+  setStateOids(manifest);
   return manifest;
 }
 
 /**
  * Re-fetches the PR exactly like opening it fresh would: git (new commits/files, force-push
  * detection) and GitHub (metadata, discussion). Resolves to null in a browser, where nothing is
- * fetched. Updates `stateOids` like `loadManifest`, since a refresh can change what a state
+ * fetched. Updates the state oids like `loadManifest`, since a refresh can change what a state
  * number means.
  */
 export async function refreshManifest(): Promise<Manifest | null> {
   if (!inTauri()) return null;
   const { invoke } = await import("@tauri-apps/api/core");
   const manifest = await invoke<Manifest>("refresh");
-  stateOids = [manifest.base, ...manifest.commits.map((c) => c.oid)];
+  setStateOids(manifest);
   return manifest;
 }
 
@@ -68,12 +87,18 @@ export async function openInEditor(path: string, program: string): Promise<void>
   await invoke("open_in_editor", { path, program });
 }
 
-/** The file's content at a state (see `stateOf` in range.ts). */
-export function fileText(file: FileKey, state: number): Promise<string> {
-  return cached(`text:${file.path}:${state}`, async () => {
+/**
+ * The file's content at a state (see `stateOf` in range.ts). `asOf` is the commit number the
+ * state was computed relative to (`stateOf`'s second argument) -- needed to resolve state 0,
+ * which has no single oid of its own; ignored for state n >= 1, a real commit's own oid.
+ */
+export function fileText(file: FileKey, state: number, asOf: number): Promise<string> {
+  const cacheKey = state === 0 ? `text:${file.path}:0@${asOf}` : `text:${file.path}:${state}`;
+  return cached(cacheKey, async () => {
     if (!inTauri()) return fetch(`/pr/files/${file.dir}/text-${state}`).then((r) => r.text());
     const { invoke } = await import("@tauri-apps/api/core");
-    return invoke<string>("file_text", { oid: stateOids[state], path: file.path, oldPath: file.oldPath ?? null });
+    const oid = state === 0 ? floorOid(asOf) : stateOids[state - 1];
+    return invoke<string>("file_text", { oid, path: file.path, oldPath: file.oldPath ?? null });
   });
 }
 
@@ -83,8 +108,8 @@ export function fileDiff(file: FileKey, from: number, to: number): Promise<strin
     if (!inTauri()) return fetch(`/pr/files/${file.dir}/diff-${from}-${to}`).then((r) => r.text());
     const { invoke } = await import("@tauri-apps/api/core");
     return invoke<string>("file_diff", {
-      fromOid: stateOids[from],
-      toOid: stateOids[to],
+      fromOid: from === 0 ? floorOid(to) : stateOids[from - 1],
+      toOid: to === 0 ? floorOid(to) : stateOids[to - 1],
       path: file.path,
       oldPath: file.oldPath ?? null,
     });
