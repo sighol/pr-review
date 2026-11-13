@@ -103,7 +103,8 @@ interface Store {
 
   /** File path -> approved commit numbers. */
   approvals: ReadonlyMap<string, ReadonlySet<number>>;
-  approveFile: (file: FileData) => void;
+  /** Approves the commits touching the file up to the commit `throughOid` (default: all of them). */
+  approveFile: (file: FileData, throughOid?: string) => void;
   unapproveFile: (file: FileData) => void;
 
   /** The commit range a file is currently viewed at. */
@@ -433,10 +434,12 @@ export function StoreProvider({
   }, []);
 
   const approveFile = useCallback(
-    (file: FileData) => {
-      const through = approveThrough(file.changedBy);
-      setApprovals((prev) => new Map(prev).set(file.path, through));
-      persist.fileApprovals(file.path, [...through].map((n) => commits[n - 1].oid));
+    (file: FileData, throughOid?: string) => {
+      const through = throughOid === undefined ? undefined : commits.find((c) => c.oid === throughOid)?.n;
+      // Never lowers an existing approval: approving through an earlier commit keeps later ones.
+      const approved = new Set([...(approvalsRef.current.get(file.path) ?? []), ...approveThrough(file.changedBy, through)]);
+      setApprovals((prev) => new Map(prev).set(file.path, approved));
+      persist.fileApprovals(file.path, [...approved].map((n) => commits[n - 1].oid));
     },
     [commits],
   );

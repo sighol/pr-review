@@ -40,6 +40,13 @@ export function DiffTab() {
   const data = useRangeData(file, range);
   const anchors = useThreadAnchors(file, range, data, threads);
 
+  // The last commit touching the file that the diff view includes; approving goes up to it.
+  const viewedCommit = useMemo(() => {
+    if (!file || !range) return null;
+    const hits = file.changedBy.filter((c) => c <= range.to);
+    return hits.length ? commits[Math.max(...hits) - 1] : null;
+  }, [file, range, commits]);
+
   const fileOrder = useMemo(() => flattenFiles(buildFileTree(files.map((f) => f.path))), [files]);
 
   useEffect(() => {
@@ -52,8 +59,8 @@ export function DiffTab() {
         e.preventDefault();
         if (isFullyApproved(file.changedBy, approvals.get(file.path))) {
           unapproveFile(file);
-        } else {
-          approveFile(file);
+        } else if (viewedCommit) {
+          approveFile(file, viewedCommit.oid);
           const next = nextUnapproved(files, approvals, file.path, fileOrder);
           if (next) setCurrentFile(next);
         }
@@ -69,7 +76,7 @@ export function DiffTab() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [tab, file, approvals, files, fileOrder, approveFile, unapproveFile, setCurrentFile]);
+  }, [tab, file, viewedCommit, approvals, files, fileOrder, approveFile, unapproveFile, setCurrentFile]);
 
   if (!file || !range) return null;
 
@@ -187,13 +194,19 @@ export function DiffTab() {
             ) : (
               <button
                 className="action primary"
-                title={(next ? `Then open ${next}` : "This is the last unapproved file") + " (a)"}
+                disabled={!viewedCommit}
+                title={
+                  viewedCommit
+                    ? (next ? `Then open ${next}` : "This is the last unapproved file") + " (a)"
+                    : "This range has no commit that changes the file"
+                }
                 onClick={() => {
-                  approveFile(file);
+                  if (!viewedCommit) return;
+                  approveFile(file, viewedCommit.oid);
                   if (next) setCurrentFile(next);
                 }}
               >
-                Approve through #{latest}
+                Approve through #{viewedCommit?.n ?? latest}
               </button>
             )}
           </div>
