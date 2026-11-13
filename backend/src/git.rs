@@ -251,7 +251,22 @@ pub async fn file_text(
     if stderr.contains("does not exist in") || stderr.contains("exists on disk, but not in") {
         return Ok(String::new());
     }
+    if let Some(sha) = submodule_commit(repo, oid, path).await {
+        return Ok(format!("Subproject commit {sha}\n"));
+    }
     bail!("git show {oid}:{path} failed: {}", stderr.trim());
+}
+
+/// The commit a submodule at `path` points to in `oid`'s tree, or None if `path` is not a
+/// submodule there. The submodule's objects are not in this repo, so `git show` cannot read it.
+async fn submodule_commit(repo: &Path, oid: &str, path: &str) -> Option<String> {
+    let out = git(repo, &["ls-tree", oid, "--", path]).await.ok()?;
+    let (meta, _) = out.split_once('\t')?;
+    let mut parts = meta.split_whitespace();
+    match (parts.next(), parts.next(), parts.next()) {
+        (Some("160000"), Some("commit"), Some(sha)) => Some(sha.to_string()),
+        _ => None,
+    }
 }
 
 /// `git diff` of one file between two commits. When the file is under a different name at each
@@ -616,6 +631,32 @@ mod tests {
             .unwrap();
         assert!(diff.starts_with("diff --git a/a.txt b/a.txt"));
         assert!(diff.contains("\n+3\n"));
+    }
+
+    #[tokio::test]
+    async fn a_submodule_reads_as_its_subproject_commit_line() {
+        let repo = TestRepo::new();
+        let a = "1".repeat(40);
+        let b = "2".repeat(40);
+        let link = |sha: &str| format!("160000,{sha},sub");
+        repo.git(&["update-index", "--add", "--cacheinfo", &link(&a)]);
+        repo.git(&["commit", "-q", "-m", "add submodule"]);
+        let c1 = repo.git(&["rev-parse", "HEAD"]);
+        repo.git(&["update-index", "--cacheinfo", &link(&b)]);
+        repo.git(&["commit", "-q", "-m", "bump submodule"]);
+        let c2 = repo.git(&["rev-parse", "HEAD"]);
+
+        assert_eq!(
+            file_text(repo.path(), &c1, "sub", None).await.unwrap(),
+            format!("Subproject commit {a}\n")
+        );
+        assert_eq!(
+            file_text(repo.path(), &c2, "sub", None).await.unwrap(),
+            format!("Subproject commit {b}\n")
+        );
+        let diff = file_diff(repo.path(), &c1, &c2, "sub", None).await.unwrap();
+        assert!(diff.contains(&format!("-Subproject commit {a}")));
+        assert!(diff.contains(&format!("+Subproject commit {b}")));
     }
 
     /// base: old.txt (10 lines). c1 renames it to new.txt and edits one line. c2 edits it again.
