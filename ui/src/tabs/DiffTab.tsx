@@ -129,6 +129,12 @@ export function DiffTab() {
         onSelect={setCurrentFile}
         statusFor={statusFor}
         renamedFrom={new Map(files.flatMap((f) => (f.oldPath ? [[f.path, f.oldPath] as const] : [])))}
+        onSetApproved={(paths, approve) => {
+          for (const path of paths) {
+            const f = fileByName.get(path);
+            if (f) (approve ? approveFile : unapproveFile)(f);
+          }
+        }}
         width={sidebarWidth}
       />
       <div className="file-tree-resize" onPointerDown={startSidebarResize} />

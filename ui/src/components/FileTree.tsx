@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { openInEditor } from "../lib/backend";
 import { copyText } from "../lib/clipboard";
-import { buildFileTree, type TreeNode } from "../lib/filetree";
+import { buildFileTree, flattenFiles, type TreeNode } from "../lib/filetree";
 import { describeError, log } from "../lib/log";
 
 export interface FileStatus {
@@ -13,6 +13,8 @@ export interface FileStatus {
 
 interface Menu {
   path: string;
+  /** Set for a folder: every file below it. */
+  folderFiles?: string[];
   x: number;
   y: number;
 }
@@ -25,6 +27,7 @@ export function FileTree({
   onSelect,
   statusFor,
   renamedFrom,
+  onSetApproved,
   width,
 }: {
   paths: readonly string[];
@@ -33,6 +36,8 @@ export function FileTree({
   statusFor: (path: string) => FileStatus;
   /** Renamed files: path -> the path at the PR base. They get a bold R. */
   renamedFrom: ReadonlyMap<string, string>;
+  /** Approves or unapproves all the given files. */
+  onSetApproved: (paths: string[], approved: boolean) => void;
   width: number;
 }) {
   const tree = useMemo(() => buildFileTree(paths), [paths]);
@@ -86,7 +91,15 @@ export function FileTree({
     const isCollapsed = collapsed.has(node.path);
     return (
       <div key={node.path}>
-        <button className="ft-folder" style={indent} onClick={() => toggle(node.path)}>
+        <button
+          className="ft-folder"
+          style={indent}
+          onClick={() => toggle(node.path)}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setMenu({ path: node.path, folderFiles: flattenFiles(node.children), x: e.clientX, y: e.clientY });
+          }}
+        >
           <span className={`ft-chevron${isCollapsed ? "" : " open"}`} />
           {node.name}
         </button>
@@ -102,27 +115,50 @@ export function FileTree({
         <>
           <div className="ft-menu-backdrop" onClick={() => setMenu(null)} onContextMenu={(e) => e.preventDefault()} />
           <div className="ft-menu" style={{ left: menu.x, top: menu.y }}>
-            <button
-              onClick={() => {
-                copyText(menu.path);
-                setMenu(null);
-              }}
-            >
-              Copy path
-            </button>
-            {EDITORS.map((program) => (
-              <button
-                key={program}
-                onClick={() => {
-                  openInEditor(menu.path, program).catch((e) =>
-                    log("warn", `could not open ${menu.path} in ${program}: ${describeError(e)}`),
-                  );
-                  setMenu(null);
-                }}
-              >
-                Open in {program}
-              </button>
-            ))}
+            {menu.folderFiles ? (
+              <>
+                <button
+                  onClick={() => {
+                    onSetApproved(menu.folderFiles!, true);
+                    setMenu(null);
+                  }}
+                >
+                  Approve all
+                </button>
+                <button
+                  onClick={() => {
+                    onSetApproved(menu.folderFiles!, false);
+                    setMenu(null);
+                  }}
+                >
+                  Unapprove all
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={() => {
+                    copyText(menu.path);
+                    setMenu(null);
+                  }}
+                >
+                  Copy path
+                </button>
+                {EDITORS.map((program) => (
+                  <button
+                    key={program}
+                    onClick={() => {
+                      openInEditor(menu.path, program).catch((e) =>
+                        log("warn", `could not open ${menu.path} in ${program}: ${describeError(e)}`),
+                      );
+                      setMenu(null);
+                    }}
+                  >
+                    Open in {program}
+                  </button>
+                ))}
+              </>
+            )}
           </div>
         </>
       )}
