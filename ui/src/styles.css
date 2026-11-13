@@ -1292,6 +1292,28 @@ textarea {
   font-family: var(--mono);
   font-size: 13px;
 }
+.confirm-dialog {
+  width: min(460px, 80vw);
+  padding: 16px 18px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+.confirm-dialog h2 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+.confirm-body {
+  color: var(--fg);
+  font-size: 13px;
+}
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
 .progress-line {
   color: var(--fg);
   padding: 2px 0;

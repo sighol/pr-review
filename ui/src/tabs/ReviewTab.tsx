@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { CommentBox, describeRange } from "../components/CommentBox";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { DirectiveTextarea } from "../components/DirectiveTextarea";
 import { ExternalLink } from "../components/ExternalLink";
 import { ProgressPopup } from "../components/ProgressPopup";
@@ -7,6 +8,7 @@ import { ThreadBox } from "../components/ThreadBox";
 import { inTauri, type ReviewEvent as Event, type SubmitResult } from "../lib/backend";
 import { describeDirectives, hasDirectives, parseDirectives } from "../lib/directives";
 import { CONVERSATION_ID, isResolved, newCount, type FakeThread } from "../lib/threads";
+import { isFullyApproved } from "../lib/approval";
 import { useRangeData } from "../lib/data";
 import { snippetFor } from "../lib/snippet";
 import { isRealDraft, pendingReplies, threadLine, useStore, type Draft, type FileData } from "../store";
@@ -63,8 +65,29 @@ export function useReviewPayload() {
 }
 
 export function ReviewTab() {
-  const { files, fileByName, threads, drafts, replies, jumpTo, reviewBody, setReviewBody, acknowledgeDraft, submitReview } =
-    useStore();
+  const {
+    files,
+    fileByName,
+    threads,
+    resolutions,
+    approvals,
+    drafts,
+    replies,
+    jumpTo,
+    reviewBody,
+    setReviewBody,
+    acknowledgeDraft,
+    submitReview,
+  } = useStore();
+  const unresolved = useMemo(
+    () => threads.filter((t) => t.id !== CONVERSATION_ID && !isResolved(t, resolutions.get(t.id))).length,
+    [threads, resolutions],
+  );
+  const unapproved = useMemo(
+    () => files.filter((f) => !isFullyApproved(f.changedBy, approvals.get(f.path))).length,
+    [files, approvals],
+  );
+  const [confirming, setConfirming] = useState<Event | null>(null);
   const payload = useReviewPayload();
   const pending = payload.comments.length + payload.replies.length;
   // In a browser nothing is sent; the payload that would be sent is shown instead.
@@ -123,6 +146,11 @@ export function ReviewTab() {
       setProgressLines(null);
     }
   };
+  // Comment and Approve warn when discussions are still open or files unapproved; Request changes does not.
+  const trySubmit = (event: Event) => {
+    if (event !== "REQUEST_CHANGES" && (unresolved > 0 || unapproved > 0)) setConfirming(event);
+    else submit(event);
+  };
   const label = (name: Event, text: string) =>
     sending === name ? "Sending…" : pending > 0 ? `${text} · ${pending} comment${pending === 1 ? "" : "s"}` : text;
   const blockedHint = staleCount > 0 ? "Check the drafts marked out of date first" : undefined;
@@ -130,6 +158,32 @@ export function ReviewTab() {
   return (
     <div className="review">
       {progressLines && <ProgressPopup lines={progressLines} />}
+      {confirming && (
+        <ConfirmDialog
+          title="Review is not complete"
+          confirmLabel={confirming === "APPROVE" ? "Approve anyway" : "Comment anyway"}
+          onCancel={() => setConfirming(null)}
+          onConfirm={() => {
+            const event = confirming;
+            setConfirming(null);
+            submit(event);
+          }}
+        >
+          <ul>
+            {unapproved > 0 && (
+              <li>
+                {unapproved} file{unapproved === 1 ? " is" : "s are"} not approved.
+              </li>
+            )}
+            {unresolved > 0 && (
+              <li>
+                {unresolved} discussion{unresolved === 1 ? " is" : "s are"} not resolved.
+              </li>
+            )}
+          </ul>
+          Do you want to {confirming === "APPROVE" ? "approve" : "post this review"} anyway?
+        </ConfirmDialog>
+      )}
       <div className="page">
         <div className="review-head">
           <h1>Review</h1>
@@ -213,7 +267,7 @@ export function ReviewTab() {
               className="action"
               disabled={!canSubmit.COMMENT}
               title={blockedHint}
-              onClick={() => submit("COMMENT")}
+              onClick={() => trySubmit("COMMENT")}
             >
               {label("COMMENT", "Comment")}
             </button>
@@ -229,7 +283,7 @@ export function ReviewTab() {
               className="action approve"
               disabled={!canSubmit.APPROVE}
               title={blockedHint}
-              onClick={() => submit("APPROVE")}
+              onClick={() => trySubmit("APPROVE")}
             >
               {label("APPROVE", "Approve")}
             </button>
