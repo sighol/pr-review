@@ -202,6 +202,17 @@ textarea {
 .ft-menu button:hover {
   background: var(--bg);
 }
+.ft-editor-icon {
+  width: 16px;
+  height: 16px;
+  vertical-align: -3px;
+  margin-right: 8px;
+}
+.ft-menu hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 4px 0;
+}
 .range-banner {
   color: var(--muted);
   font-size: 13px;

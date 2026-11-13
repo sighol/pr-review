@@ -19,7 +19,7 @@ interface Menu {
   y: number;
 }
 
-const EDITORS = ["zed", "code", "idea"] as const;
+const EDITORS = ["code", "idea", "zed"] as const;
 
 export function FileTree({
   paths,
@@ -115,27 +115,25 @@ export function FileTree({
         <>
           <div className="ft-menu-backdrop" onClick={() => setMenu(null)} onContextMenu={(e) => e.preventDefault()} />
           <div className="ft-menu" style={{ left: menu.x, top: menu.y }}>
-            {menu.folderFiles ? (
+            <button
+              onClick={() => {
+                onSetApproved(menu.folderFiles ?? [menu.path], true);
+                setMenu(null);
+              }}
+            >
+              {menu.folderFiles ? "Approve all" : "Approve"}
+            </button>
+            <button
+              onClick={() => {
+                onSetApproved(menu.folderFiles ?? [menu.path], false);
+                setMenu(null);
+              }}
+            >
+              {menu.folderFiles ? "Unapprove all" : "Unapprove"}
+            </button>
+            {!menu.folderFiles && (
               <>
-                <button
-                  onClick={() => {
-                    onSetApproved(menu.folderFiles!, true);
-                    setMenu(null);
-                  }}
-                >
-                  Approve all
-                </button>
-                <button
-                  onClick={() => {
-                    onSetApproved(menu.folderFiles!, false);
-                    setMenu(null);
-                  }}
-                >
-                  Unapprove all
-                </button>
-              </>
-            ) : (
-              <>
+                <hr />
                 <button
                   onClick={() => {
                     copyText(menu.path);
@@ -144,6 +142,7 @@ export function FileTree({
                 >
                   Copy path
                 </button>
+                <hr />
                 {EDITORS.map((program) => (
                   <button
                     key={program}
@@ -154,6 +153,12 @@ export function FileTree({
                       setMenu(null);
                     }}
                   >
+                    <img
+                      className="ft-editor-icon"
+                      src={`/editors/${program}.png`}
+                      alt=""
+                      onError={(e) => (e.currentTarget.style.visibility = "hidden")}
+                    />
                     Open in {program}
                   </button>
                 ))}
