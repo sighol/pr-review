@@ -8,8 +8,8 @@ import { ThreadBox } from "../components/ThreadBox";
 import { inTauri, type ReviewEvent as Event, type SubmitResult } from "../lib/backend";
 import { describeDirectives, hasDirectives, parseDirectives } from "../lib/directives";
 import { CONVERSATION_ID, isResolved, newCount, type FakeThread } from "../lib/threads";
-import { isFullyApproved } from "../lib/approval";
 import { useRangeData } from "../lib/data";
+import { readiness } from "../lib/readiness";
 import { snippetFor } from "../lib/snippet";
 import { isRealDraft, pendingReplies, threadLine, useStore, type Draft, type FileData } from "../store";
 
@@ -79,13 +79,9 @@ export function ReviewTab() {
     acknowledgeDraft,
     submitReview,
   } = useStore();
-  const unresolved = useMemo(
-    () => threads.filter((t) => t.id !== CONVERSATION_ID && !isResolved(t, resolutions.get(t.id))).length,
-    [threads, resolutions],
-  );
-  const unapproved = useMemo(
-    () => files.filter((f) => !isFullyApproved(f.changedBy, approvals.get(f.path))).length,
-    [files, approvals],
+  const { unresolvedThreads: unresolved, unapprovedFiles: unapproved, ready } = useMemo(
+    () => readiness(files, approvals, threads, resolutions),
+    [files, approvals, threads, resolutions],
   );
   const [confirming, setConfirming] = useState<Event | null>(null);
   const payload = useReviewPayload();
@@ -192,6 +188,14 @@ export function ReviewTab() {
             Preview all
           </button>
         </div>
+        {ready && (
+          <div className="ready-banner" role="status">
+            <span className="ready-check">✓</span>
+            <span className="ready-text">
+              <strong>Ready to approve.</strong> Every file is approved and every discussion is resolved.
+            </span>
+          </div>
+        )}
         <p className="muted">
           {pending === 0
             ? "You have no pending comments."

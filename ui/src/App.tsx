@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { FatalError } from "./components/ErrorBoundary";
 import { clearFileCache, fileText, loadManifest, loadSaved, refreshManifest, type Manifest, type SavedState } from "./lib/backend";
 import { describeError, describeViewport, log } from "./lib/log";
+import { readiness } from "./lib/readiness";
 import { routeUrl } from "./lib/route";
 import { ALL_THREADS, PR, isResolved, newCount, threadFromJson, type FakeThread, type PrInfo } from "./lib/threads";
 import { StoreProvider, useStore, type Commit, type FileData, type Tab } from "./store";
@@ -95,18 +96,34 @@ function Panel({ id, children }: { id: Tab; children: ReactNode }) {
 }
 
 function Header() {
-  const { tab, setTab, currentFile, threads, resolutions, pr, refresh, refreshing, refreshError } = useStore();
+  const { tab, setTab, currentFile, files, approvals, threads, resolutions, pr, refresh, refreshing, refreshError } =
+    useStore();
   const payload = useReviewPayload();
   const pending = payload.comments.length + payload.replies.length;
   const withNew = threads.filter((t) => {
     const r = resolutions.get(t.id);
     return !isResolved(t, r) && newCount(t, r) > 0;
   }).length;
+  const { ready } = readiness(files, approvals, threads, resolutions);
 
-  const tabs: { id: Tab; label: string; badge?: ReactNode }[] = [
+  const tabs: { id: Tab; label: string; badge?: ReactNode; ready?: boolean }[] = [
     { id: "summary", label: "Summary", badge: withNew > 0 ? <span className="badge-new">{withNew} new</span> : null },
     { id: "diff", label: "Diff" },
-    { id: "review", label: "Review", badge: pending > 0 ? <span className="badge-count">{pending}</span> : null },
+    {
+      id: "review",
+      label: "Review",
+      ready,
+      badge: (
+        <>
+          {ready && (
+            <span className="badge-ready" title="All files approved and all discussions resolved">
+              ✓
+            </span>
+          )}
+          {pending > 0 && <span className="badge-count">{pending}</span>}
+        </>
+      ),
+    },
   ];
 
   return (
@@ -119,7 +136,7 @@ function Header() {
           <a
             key={t.id}
             href={routeUrl(t.id === "diff" ? { tab: "diff", file: currentFile } : { tab: t.id })}
-            className={`tab${tab === t.id ? " active" : ""}`}
+            className={`tab${tab === t.id ? " active" : ""}${t.ready ? " ready" : ""}`}
             onClick={(e) => {
               if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
               e.preventDefault();
