@@ -79,6 +79,7 @@ export function ReviewTab() {
     approvals,
     drafts,
     replies,
+    replyResolves,
     jumpTo,
     reviewBody,
     setReviewBody,
@@ -86,8 +87,8 @@ export function ReviewTab() {
     submitReview,
   } = useStore();
   const { unresolvedThreads: unresolved, unapprovedFiles: unapproved, ready } = useMemo(
-    () => readiness(files, approvals, threads, resolutions),
-    [files, approvals, threads, resolutions],
+    () => readiness(files, approvals, threads, resolutions, { drafts: [...drafts.values()], replies, replyResolves }),
+    [files, approvals, threads, resolutions, drafts, replies, replyResolves],
   );
   const [confirming, setConfirming] = useState<Event | null>(null);
   const payload = useReviewPayload();

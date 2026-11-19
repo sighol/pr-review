@@ -96,15 +96,33 @@ function Panel({ id, children }: { id: Tab; children: ReactNode }) {
 }
 
 function Header() {
-  const { tab, setTab, currentFile, files, approvals, threads, resolutions, pr, refresh, refreshing, refreshError } =
-    useStore();
+  const {
+    tab,
+    setTab,
+    currentFile,
+    files,
+    approvals,
+    threads,
+    resolutions,
+    drafts,
+    replies,
+    replyResolves,
+    pr,
+    refresh,
+    refreshing,
+    refreshError,
+  } = useStore();
   const payload = useReviewPayload();
   const pending = payload.comments.length + payload.replies.length;
   const withNew = threads.filter((t) => {
     const r = resolutions.get(t.id);
     return !isResolved(t, r) && newCount(t, r) > 0;
   }).length;
-  const { ready } = readiness(files, approvals, threads, resolutions);
+  const { ready } = readiness(files, approvals, threads, resolutions, {
+    drafts: [...drafts.values()],
+    replies,
+    replyResolves,
+  });
 
   const tabs: { id: Tab; label: string; badge?: ReactNode; ready?: boolean }[] = [
     { id: "summary", label: "Summary", badge: withNew > 0 ? <span className="badge-new">{withNew} new</span> : null },
