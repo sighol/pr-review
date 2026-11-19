@@ -104,9 +104,17 @@ export function mergeRanges(ranges: Range[]): Range[] {
 export function wordRanges(oldText: string, newText: string): { old: Range[]; new: Range[] } {
   const old: Range[] = [];
   const nu: Range[] = [];
-  let o = 0;
-  let n = 0;
-  for (const part of diffWordsWithSpace(oldText, newText)) {
+  // Indentation is compared on its own (only the part that differs is marked); otherwise the
+  // word diff marks the whole indent on both sides whenever it changes.
+  const oldIndent = /^\s*/.exec(oldText)![0];
+  const newIndent = /^\s*/.exec(newText)![0];
+  let common = 0;
+  while (common < oldIndent.length && common < newIndent.length && oldIndent[common] === newIndent[common]) common++;
+  if (oldIndent.length > common) old.push([common, oldIndent.length]);
+  if (newIndent.length > common) nu.push([common, newIndent.length]);
+  let o = oldIndent.length;
+  let n = newIndent.length;
+  for (const part of diffWordsWithSpace(oldText.slice(o), newText.slice(n))) {
     const len = part.value.length;
     if (part.removed) {
       old.push([o, o + len]);

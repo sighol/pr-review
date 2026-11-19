@@ -102,6 +102,12 @@ describe("word ranges", () => {
     expect(w.new.length).toBe(1);
   });
 
+  test("indentation changes mark only the differing part of the indent", () => {
+    expect(wordRanges("    foo(a);", "        foo(a);")).toEqual({ old: [], new: [[4, 8]] });
+    expect(wordRanges("\t\tfoo(a);", "\tfoo(a);")).toEqual({ old: [[1, 2]], new: [] });
+    expect(wordRanges("  if (x) {", "    if (y) {")).toEqual({ old: [[6, 7]], new: [[2, 4], [8, 9]] });
+  });
+
   test("pairs are positional: unequal del/add blocks leave filler cells", () => {
     const hunks = parseUnifiedDiff("@@ -1,2 +1,3 @@\n-a\n-b\n+A\n+B\n+C\n");
     const rows = buildRows(["a", "b"], ["A", "B", "C"], hunks, { wholeFile: false, expandedGaps: new Set() });
