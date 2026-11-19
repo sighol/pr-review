@@ -7,6 +7,7 @@ use serde_json::{Value, json};
 
 use crate::directives::{self, Applied, Directives};
 use crate::github;
+use crate::threads::CONVERSATION_ID;
 
 /// What the review says about the PR.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,12 +49,16 @@ pub struct NewComment {
     pub side: String,
     pub start_line: i64,
     pub end_line: i64,
+    /// Resolve the new thread locally once it is posted.
+    pub resolve: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ThreadReply {
     pub thread_id: String,
     pub body: String,
+    /// Resolve the thread locally through this reply once it is posted.
+    pub resolve: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -66,10 +71,23 @@ pub struct Submission {
     pub replies: Vec<ThreadReply>,
     /// A reply to the PR conversation; posted after the review, as a plain comment.
     pub conversation_reply: Option<String>,
+    /// Resolve the conversation locally through that reply once it is posted.
+    pub conversation_reply_resolve: bool,
+    /// Resolve the conversation locally through the review itself (an approval).
+    pub resolve_conversation: bool,
     /// Label and assignee changes, applied after the review.
     pub directives: Directives,
     /// False when there is only label/assignee changes and nothing to say to GitHub as a review.
     pub post_review: bool,
+}
+
+/// What a submission created on GitHub, for resolving threads afterwards.
+#[derive(Debug, Default)]
+pub struct Posted {
+    /// Node ids of the comments and the review that were posted.
+    pub comment_ids: Vec<String>,
+    /// Ids of the threads to resolve through what was posted (may repeat).
+    pub resolve_threads: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -80,6 +98,8 @@ pub struct Outcome {
     /// Set when the review went through but the conversation comment did not.
     pub conversation_error: Option<String>,
     pub directives: Applied,
+    #[serde(skip)]
+    pub posted: Posted,
 }
 
 /// Anything that can run a GraphQL query; `gh` in production, a fake in tests.
@@ -104,19 +124,19 @@ const ADD_REVIEW: &str = "mutation($pr: ID!, $commit: GitObjectID!) {
   addPullRequestReview(input: {pullRequestId: $pr, commitOID: $commit}) { pullRequestReview { id } }
 }";
 const ADD_THREAD: &str = "mutation($input: AddPullRequestReviewThreadInput!) {
-  addPullRequestReviewThread(input: $input) { thread { id } }
+  addPullRequestReviewThread(input: $input) { thread { id comments(first: 1) { nodes { id } } } }
 }";
 const ADD_REPLY: &str = "mutation($input: AddPullRequestReviewThreadReplyInput!) {
   addPullRequestReviewThreadReply(input: $input) { comment { id } }
 }";
 const SUBMIT: &str = "mutation($input: SubmitPullRequestReviewInput!) {
-  submitPullRequestReview(input: $input) { pullRequestReview { url } }
+  submitPullRequestReview(input: $input) { pullRequestReview { id url } }
 }";
 const DELETE: &str = "mutation($id: ID!) {
   deletePullRequestReview(input: {pullRequestReviewId: $id}) { pullRequestReview { id } }
 }";
 const ADD_COMMENT: &str = "mutation($input: AddCommentInput!) {
-  addComment(input: $input) { commentEdge { node { url } } }
+  addComment(input: $input) { commentEdge { node { id url } } }
 }";
 
 fn diff_side(side: &str) -> &'static str {
@@ -187,6 +207,7 @@ pub async fn submit(
         Some(directives::plan(gh, owner, repo, number, &pr_id, &sub.directives).await?)
     };
 
+    let mut posted = Posted::default();
     let review_url = if sub.post_review {
         progress("Creating the pending review...");
         let review = gh
@@ -195,7 +216,13 @@ pub async fn submit(
         let review_id =
             string_at(&review, "/addPullRequestReview/pullRequestReview/id")?.to_string();
         match fill_and_submit(gh, &review_id, sub, progress).await {
-            Ok(url) => Some(url),
+            Ok((url, filled)) => {
+                posted = filled;
+                if sub.resolve_conversation {
+                    posted.resolve_threads.push(CONVERSATION_ID.to_string());
+                }
+                Some(url)
+            }
             Err(e) => {
                 progress("Rolling back the pending review...");
                 return Err(match gh.call(DELETE, json!({ "id": review_id })).await {
@@ -213,13 +240,27 @@ pub async fn submit(
     let conversation_error = match sub.conversation_reply.as_deref() {
         Some(body) => {
             progress("Posting your reply to the conversation...");
-            gh.call(
-                ADD_COMMENT,
-                json!({ "input": { "subjectId": pr_id, "body": body } }),
-            )
-            .await
-            .err()
-            .map(|e| format!("{e:#}"))
+            match gh
+                .call(
+                    ADD_COMMENT,
+                    json!({ "input": { "subjectId": pr_id, "body": body } }),
+                )
+                .await
+            {
+                Ok(added) => {
+                    if let Some(id) = added
+                        .pointer("/addComment/commentEdge/node/id")
+                        .and_then(Value::as_str)
+                    {
+                        posted.comment_ids.push(id.to_string());
+                    }
+                    if sub.conversation_reply_resolve {
+                        posted.resolve_threads.push(CONVERSATION_ID.to_string());
+                    }
+                    None
+                }
+                Err(e) => Some(format!("{e:#}")),
+            }
         }
         None => None,
     };
@@ -234,6 +275,7 @@ pub async fn submit(
         review_url,
         conversation_error,
         directives,
+        posted,
     })
 }
 
@@ -242,25 +284,47 @@ async fn fill_and_submit(
     review_id: &str,
     sub: &Submission,
     progress: &(dyn Fn(&str) + Send + Sync),
-) -> Result<String> {
+) -> Result<(String, Posted)> {
+    let mut posted = Posted::default();
     for c in &sub.comments {
         progress(&format!("Posting comment on {}:{}...", c.path, c.end_line));
-        gh.call(ADD_THREAD, json!({ "input": thread_input(review_id, c) }))
+        let added = gh
+            .call(ADD_THREAD, json!({ "input": thread_input(review_id, c) }))
             .await
             .with_context(|| format!("posting the comment on {}:{}", c.path, c.end_line))?;
+        if let Some(id) = added
+            .pointer("/addPullRequestReviewThread/thread/comments/nodes/0/id")
+            .and_then(Value::as_str)
+        {
+            posted.comment_ids.push(id.to_string());
+        }
+        if c.resolve {
+            let thread = string_at(&added, "/addPullRequestReviewThread/thread/id")?;
+            posted.resolve_threads.push(thread.to_string());
+        }
     }
     for r in &sub.replies {
         progress("Posting reply...");
-        gh.call(
-            ADD_REPLY,
-            json!({ "input": {
-                "pullRequestReviewId": review_id,
-                "pullRequestReviewThreadId": r.thread_id,
-                "body": r.body,
-            } }),
-        )
-        .await
-        .context("posting a reply")?;
+        let added = gh
+            .call(
+                ADD_REPLY,
+                json!({ "input": {
+                    "pullRequestReviewId": review_id,
+                    "pullRequestReviewThreadId": r.thread_id,
+                    "body": r.body,
+                } }),
+            )
+            .await
+            .context("posting a reply")?;
+        if let Some(id) = added
+            .pointer("/addPullRequestReviewThreadReply/comment/id")
+            .and_then(Value::as_str)
+        {
+            posted.comment_ids.push(id.to_string());
+        }
+        if r.resolve {
+            posted.resolve_threads.push(r.thread_id.clone());
+        }
     }
     progress("Submitting the review...");
     let submitted = gh
@@ -274,7 +338,11 @@ async fn fill_and_submit(
         )
         .await
         .map_err(|e| anyhow!("submitting the review: {e:#}"))?;
-    Ok(string_at(&submitted, "/submitPullRequestReview/pullRequestReview/url")?.to_string())
+    posted
+        .comment_ids
+        .push(string_at(&submitted, "/submitPullRequestReview/pullRequestReview/id")?.to_string());
+    let url = string_at(&submitted, "/submitPullRequestReview/pullRequestReview/url")?;
+    Ok((url.to_string(), posted))
 }
 
 #[cfg(test)]
@@ -319,7 +387,7 @@ mod tests {
                 ),
                 ADD_THREAD => (
                     "thread",
-                    json!({"addPullRequestReviewThread": {"thread": {"id": "T"}}}),
+                    json!({"addPullRequestReviewThread": {"thread": {"id": "T", "comments": {"nodes": [{"id": "TC"}]}}}}),
                 ),
                 ADD_REPLY => (
                     "reply",
@@ -327,7 +395,7 @@ mod tests {
                 ),
                 SUBMIT => (
                     "submit",
-                    json!({"submitPullRequestReview": {"pullRequestReview": {"url": "https://example/r"}}}),
+                    json!({"submitPullRequestReview": {"pullRequestReview": {"id": "R1", "url": "https://example/r"}}}),
                 ),
                 DELETE => (
                     "delete",
@@ -335,7 +403,7 @@ mod tests {
                 ),
                 ADD_COMMENT => (
                     "comment",
-                    json!({"addComment": {"commentEdge": {"node": {"url": "https://example/c"}}}}),
+                    json!({"addComment": {"commentEdge": {"node": {"id": "IC", "url": "https://example/c"}}}}),
                 ),
                 directives::LOOKUP => (
                     "lookup",
@@ -367,6 +435,7 @@ mod tests {
                     side: "new".into(),
                     start_line: 3,
                     end_line: 3,
+                    resolve: true,
                 },
                 NewComment {
                     path: "b.rs".into(),
@@ -374,13 +443,17 @@ mod tests {
                     side: "old".into(),
                     start_line: 5,
                     end_line: 8,
+                    resolve: false,
                 },
             ],
             replies: vec![ThreadReply {
                 thread_id: "PRRT_1".into(),
                 body: "agreed".into(),
+                resolve: true,
             }],
             conversation_reply: Some("thanks".into()),
+            conversation_reply_resolve: false,
+            resolve_conversation: false,
             directives: Directives::default(),
             post_review: true,
         }
@@ -412,6 +485,52 @@ mod tests {
             calls[6].1["input"],
             json!({"subjectId": "PR1", "body": "thanks"})
         );
+    }
+
+    #[tokio::test]
+    async fn reports_what_was_posted_and_which_threads_to_resolve() {
+        let gh = Fake::new();
+        let out = submit(&gh, "o", "r", 7, &submission(), &|_| {})
+            .await
+            .unwrap();
+        // Two new threads (TC each), the reply, the review, and the conversation comment.
+        assert_eq!(out.posted.comment_ids, ["TC", "TC", "C", "R1", "IC"]);
+        // Only the first new thread and the reply asked to be resolved.
+        assert_eq!(out.posted.resolve_threads, ["T", "PRRT_1"]);
+    }
+
+    #[tokio::test]
+    async fn an_approval_and_a_conversation_reply_resolve_the_conversation() {
+        let gh = Fake::new();
+        let sub = Submission {
+            event: Event::Approve,
+            resolve_conversation: true,
+            ..submission()
+        };
+        let out = submit(&gh, "o", "r", 7, &sub, &|_| {}).await.unwrap();
+        assert_eq!(out.posted.resolve_threads, ["T", "PRRT_1", CONVERSATION_ID]);
+
+        let sub = Submission {
+            conversation_reply_resolve: true,
+            ..submission()
+        };
+        let out = submit(&gh, "o", "r", 7, &sub, &|_| {}).await.unwrap();
+        assert_eq!(out.posted.resolve_threads, ["T", "PRRT_1", CONVERSATION_ID]);
+    }
+
+    #[tokio::test]
+    async fn a_conversation_reply_that_failed_resolves_nothing() {
+        let gh = Fake {
+            fail: &["comment"],
+            ..Fake::new()
+        };
+        let sub = Submission {
+            conversation_reply_resolve: true,
+            ..submission()
+        };
+        let out = submit(&gh, "o", "r", 7, &sub, &|_| {}).await.unwrap();
+        assert_eq!(out.posted.resolve_threads, ["T", "PRRT_1"]);
+        assert!(!out.posted.comment_ids.contains(&"IC".to_string()));
     }
 
     #[tokio::test]
@@ -588,6 +707,7 @@ mod tests {
             side: "new".into(),
             start_line: 3,
             end_line: 3,
+            resolve: false,
         };
         assert_eq!(
             thread_input("R", &single),

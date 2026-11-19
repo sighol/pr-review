@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use serde::Serialize;
 
@@ -73,6 +73,23 @@ pub fn follow_renames(threads: &mut [Thread], renames: &HashMap<&str, &str>) {
             t.file = Some(new.to_string());
         }
     }
+}
+
+/// The comment to resolve `thread` through after a review was sent: the latest comment such that
+/// every comment up to it was either one you had already loaded (`known`) or one that was just
+/// posted (`posted`). A comment from someone else that arrived since you loaded the thread stops
+/// the walk, so resolving never covers something you have not seen.
+pub fn resolve_through(
+    thread: &Thread,
+    known: &HashSet<&str>,
+    posted: &HashSet<&str>,
+) -> Option<String> {
+    thread
+        .comments
+        .iter()
+        .take_while(|c| known.contains(c.id.as_str()) || posted.contains(c.id.as_str()))
+        .last()
+        .map(|c| c.id.clone())
 }
 
 /// `commit_numbers` maps a commit oid to its 1-based number in the PR. Conversation comments and
@@ -328,6 +345,62 @@ mod tests {
         follow_renames(&mut t, &HashMap::from([(old.as_str(), "new/name.rs")]));
         assert_eq!(t[0].file.as_deref(), Some("new/name.rs"));
         assert_eq!(t[1].file, None, "the conversation has no file");
+    }
+
+    fn thread_of(ids: &[&str]) -> Thread {
+        Thread {
+            id: "t".into(),
+            file: None,
+            side: "new",
+            line: None,
+            start_line: None,
+            original_line: 0,
+            commit: 0,
+            github_resolved: false,
+            comments: ids
+                .iter()
+                .map(|id| Comment {
+                    id: id.to_string(),
+                    author: "a".into(),
+                    created_at: String::new(),
+                    body: String::new(),
+                    url: String::new(),
+                    review_state: None,
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn resolving_stops_at_a_comment_you_have_not_seen() {
+        let known = HashSet::from(["a", "b"]);
+        let mine = HashSet::from(["mine"]);
+        // Nothing new: through the comment you just posted.
+        assert_eq!(
+            resolve_through(&thread_of(&["a", "b", "mine"]), &known, &mine),
+            Some("mine".into())
+        );
+        // Someone replied before you sent yours: their comment and yours both stay open.
+        assert_eq!(
+            resolve_through(&thread_of(&["a", "b", "theirs", "mine"]), &known, &mine),
+            Some("b".into())
+        );
+        // Someone replied after yours: only theirs stays open.
+        assert_eq!(
+            resolve_through(&thread_of(&["a", "b", "mine", "theirs"]), &known, &mine),
+            Some("mine".into())
+        );
+        // Several of yours, with a known comment between them.
+        let two = HashSet::from(["m1", "m2"]);
+        assert_eq!(
+            resolve_through(&thread_of(&["a", "m1", "b", "m2"]), &known, &two),
+            Some("m2".into())
+        );
+        // The very first comment is unknown: nothing can be resolved.
+        assert_eq!(
+            resolve_through(&thread_of(&["theirs", "mine"]), &known, &mine),
+            None
+        );
     }
 
     #[test]

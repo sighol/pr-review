@@ -5,6 +5,7 @@ import { insertBlock } from "../lib/suggest";
 import { undoRedoWorkaround } from "../lib/undoRedo";
 import { useStore, type Draft } from "../store";
 import { Markdown } from "./Markdown";
+import { ResolveToggle } from "./ResolveToggle";
 
 interface Props {
   draft: Draft;
@@ -19,7 +20,7 @@ export function describeRange({ side, start, end }: LineRange) {
 }
 
 export function CommentBox({ draft, preview = false, previewAllTick }: Props) {
-  const { focus, patchDraft, removeDraft, fileByName } = useStore();
+  const { focus, patchDraft, removeDraft, setDraftResolve, fileByName } = useStore();
   const file = fileByName.get(draft.file);
   const focusTick = focus?.key === draft.key ? focus.tick : 0;
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -66,59 +67,65 @@ export function CommentBox({ draft, preview = false, previewAllTick }: Props) {
   };
 
   return (
-    <div className="comment draft">
-      <div className="comment-head">
-        <span>Draft comment · {describeRange(draft.range)}</span>
-        <span className="head-actions">
-          {canSuggest && (
-            <button
-              className="action small"
-              title="Insert a suggestion block with the current code"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={suggest}
-            >
-              Suggest
-            </button>
-          )}
-          <button className="link" onClick={() => removeDraft(draft.key)}>
-            delete
-          </button>
-        </span>
+    <div className="comment draft reply-draft new-draft">
+      <div className="draft-tag" aria-hidden>
+        DRAFT
       </div>
-      {preview && (
-        <div className="mode-toggle">
-          <button className={`mode-tab${mode === "write" ? " active" : ""}`} onClick={() => setMode("write")}>
-            Write
-          </button>
-          <button className={`mode-tab${mode === "preview" ? " active" : ""}`} onClick={() => setMode("preview")}>
-            Preview
-          </button>
+      <div className="reply-main">
+        <div className="comment-head">
+          <span>{describeRange(draft.range)}</span>
+          <span className="head-actions">
+            {canSuggest && (
+              <button
+                className="action small"
+                title="Insert a suggestion block with the current code"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={suggest}
+              >
+                Suggest
+              </button>
+            )}
+            <button className="link" onClick={() => removeDraft(draft.key)}>
+              delete
+            </button>
+          </span>
         </div>
-      )}
-      <textarea
-        ref={ref}
-        value={draft.text}
-        placeholder="Leave a comment"
-        onChange={(e) => patchDraft(draft.key, e.target.value)}
-        onKeyDown={undoRedoWorkaround}
-        onBlur={() => {
-          if (draft.text.trim() === "") removeDraft(draft.key);
-        }}
-        style={preview && mode === "preview" ? { display: "none" } : undefined}
-      />
-      {preview && mode === "preview" && (
-        <div className="preview">
-          {draft.text.trim() !== "" ? (
-            <Markdown
-              text={draft.text}
-              fileLang={langFor(file?.path ?? "")}
-              replaces={canSuggest ? newLines.slice(draft.range.start - 1, draft.range.end) : null}
-            />
-          ) : (
-            <div className="muted">Nothing to preview yet.</div>
-          )}
-        </div>
-      )}
+        {preview && (
+          <div className="mode-toggle">
+            <button className={`mode-tab${mode === "write" ? " active" : ""}`} onClick={() => setMode("write")}>
+              Write
+            </button>
+            <button className={`mode-tab${mode === "preview" ? " active" : ""}`} onClick={() => setMode("preview")}>
+              Preview
+            </button>
+          </div>
+        )}
+        <textarea
+          ref={ref}
+          value={draft.text}
+          placeholder="Leave a comment"
+          onChange={(e) => patchDraft(draft.key, e.target.value)}
+          onKeyDown={undoRedoWorkaround}
+          onBlur={() => {
+            if (draft.text.trim() === "") removeDraft(draft.key);
+          }}
+          style={preview && mode === "preview" ? { display: "none" } : undefined}
+        />
+        {preview && mode === "preview" && (
+          <div className="preview">
+            {draft.text.trim() !== "" ? (
+              <Markdown
+                text={draft.text}
+                fileLang={langFor(file?.path ?? "")}
+                replaces={canSuggest ? newLines.slice(draft.range.start - 1, draft.range.end) : null}
+              />
+            ) : (
+              <div className="muted">Nothing to preview yet.</div>
+            )}
+          </div>
+        )}
+        <ResolveToggle on={draft.resolve} onChange={(on) => setDraftResolve(draft.key, on)} />
+      </div>
     </div>
   );
 }

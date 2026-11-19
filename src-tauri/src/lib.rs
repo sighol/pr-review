@@ -317,6 +317,14 @@ async fn submit_review(
         ),
     )
     .await;
+    // What a later submit treats as "already loaded" is what the window shows now.
+    if let Ok(SubmitResult {
+        threads: Some(threads),
+        ..
+    }) = &result
+    {
+        state.manifest.lock().unwrap().threads = Some(threads.clone());
+    }
     match &result {
         Ok(r) => info!(
             "review submitted: {}",
@@ -357,8 +365,13 @@ async fn save_reply(
     state: State<'_, AppState>,
     thread_id: String,
     body: String,
+    resolve: bool,
 ) -> Result<(), String> {
-    logged("save_reply", state.db.save_reply(&thread_id, &body)).await
+    logged(
+        "save_reply",
+        state.db.save_reply(&thread_id, &body, resolve),
+    )
+    .await
 }
 
 #[tauri::command]

@@ -14,6 +14,7 @@ import { snippetFor } from "../lib/snippet";
 import { isRealDraft, pendingReplies, threadLine, useStore, type Draft, type FileData } from "../store";
 
 const MAX_SNIPPET = 10;
+const APPROVE_RESOLVES = "Approving also resolves the PR conversation";
 
 function Snippet({ file, draft }: { file: FileData; draft: Draft }) {
   const { commits } = useStore();
@@ -48,7 +49,7 @@ function ThreadStatus({ thread }: { thread: FakeThread }) {
 }
 
 export function useReviewPayload() {
-  const { drafts, replies, fileByName } = useStore();
+  const { drafts, replies, replyResolves, fileByName } = useStore();
   return useMemo(() => {
     const comments = [...drafts.values()].filter(isRealDraft).map((d) => ({
       path: fileByName.get(d.file)?.path ?? d.file,
@@ -58,10 +59,15 @@ export function useReviewPayload() {
         : {}),
       line: d.range.end,
       body: d.text,
+      resolve_thread: d.resolve,
     }));
-    const threadReplies = pendingReplies(replies).map(([thread_id, body]) => ({ thread_id, body }));
+    const threadReplies = pendingReplies(replies).map(([thread_id, body]) => ({
+      thread_id,
+      body,
+      resolve_thread: replyResolves.has(thread_id),
+    }));
     return { comments, replies: threadReplies };
-  }, [drafts, replies, fileByName]);
+  }, [drafts, replies, replyResolves, fileByName]);
 }
 
 export function ReviewTab() {
@@ -114,6 +120,7 @@ export function ReviewTab() {
   const parsed = useMemo(() => parseDirectives(reviewBody), [reviewBody]);
   const body = parsed.text;
   const changes = hasDirectives(parsed.directives);
+  const hasConversation = threads.some((t) => t.id === CONVERSATION_ID);
   const idle = sending === null && staleCount === 0;
   const canSubmit: Record<Event, boolean> = {
     APPROVE: idle,
@@ -133,7 +140,8 @@ export function ReviewTab() {
       if (sent) setResult(sent);
       else {
         const directives = changes ? { directives: parsed.directives } : {};
-        setSubmitted({ event, payload: { event, body: parsed.text, ...directives, ...payload } });
+        const resolves = event === "APPROVE" && hasConversation ? { resolve_conversation: true } : {};
+        setSubmitted({ event, payload: { event, body: parsed.text, ...directives, ...resolves, ...payload } });
       }
     } catch (e) {
       setError(String(e));
@@ -261,6 +269,7 @@ export function ReviewTab() {
             placeholder="Leave a comment on the whole review (required to request changes)"
             onChange={setReviewBody}
           />
+          {hasConversation && <div className="approve-hint">{APPROVE_RESOLVES}</div>}
           {changes && (
             <div className="directive-summary">
               {describeDirectives(parsed.directives, body !== "" || pending > 0).join(" · ")}
@@ -286,7 +295,7 @@ export function ReviewTab() {
             <button
               className="action approve"
               disabled={!canSubmit.APPROVE}
-              title={blockedHint}
+              title={blockedHint ?? (hasConversation ? APPROVE_RESOLVES : undefined)}
               onClick={() => trySubmit("APPROVE")}
             >
               {label("APPROVE", "Approve")}

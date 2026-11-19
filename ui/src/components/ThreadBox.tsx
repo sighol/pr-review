@@ -8,6 +8,7 @@ import { undoRedoWorkaround } from "../lib/undoRedo";
 import { useStore } from "../store";
 import { ExternalLink } from "./ExternalLink";
 import { Markdown } from "./Markdown";
+import { ResolveToggle } from "./ResolveToggle";
 
 interface Props {
   thread: FakeThread;
@@ -164,7 +165,7 @@ export function ReplyBox({
   preview?: boolean;
   previewAllTick?: number;
 }) {
-  const { replies, setReply } = useStore();
+  const { replies, setReply, replyResolves, setReplyResolve } = useStore();
   const text = replies.get(threadId);
   const [mode, setMode] = useState<"write" | "preview">("write");
   const lastPreviewAllTick = useRef(previewAllTick);
@@ -221,6 +222,7 @@ export function ReplyBox({
             )}
           </div>
         )}
+        <ResolveToggle on={replyResolves.has(threadId)} onChange={(on) => setReplyResolve(threadId, on)} />
       </div>
     </div>
   );

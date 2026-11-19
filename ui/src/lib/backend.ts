@@ -126,10 +126,12 @@ export interface SavedState {
     startLine: number;
     endLine: number;
     body: string;
+    /** Resolve the new thread when the review is sent. */
+    resolve: boolean;
     /** The file changed since the draft was written, so its line may be wrong. */
     stale: boolean;
   }[];
-  replies: { threadId: string; body: string }[];
+  replies: { threadId: string; body: string; resolve: boolean }[];
   resolutions: { threadId: string; resolvedThrough: string | null; reopened: boolean }[];
   reviewBody: string;
   /** Force-pushes (history rewrites) detected across restarts, oldest first. */
@@ -197,6 +199,8 @@ export interface SubmitResult {
   /** The discussion after the review; null if refetching it failed. */
   threads: ThreadJson[] | null;
   refreshError: string | null;
+  /** Threads this review resolved locally (already saved by the backend). */
+  resolutions: { threadId: string; resolvedThrough: string | null; reopened: boolean }[];
 }
 
 /**
@@ -231,13 +235,21 @@ export const persist = {
   acknowledgeDraft: (draftKey: string) => save("acknowledge_draft", { draftKey }),
   fileApprovals: (filePath: string, commitOids: string[]) => save("set_file_approvals", { filePath, commitOids }),
   /** Typing is saved after a short pause. */
-  draft: (d: { draftKey: string; filePath: string; side: "old" | "new"; startLine: number; endLine: number; body: string }) =>
-    saveSoon(`draft:${d.draftKey}`, () => save("save_draft", { draft: d })),
+  draft: (d: {
+    draftKey: string;
+    filePath: string;
+    side: "old" | "new";
+    startLine: number;
+    endLine: number;
+    body: string;
+    resolve: boolean;
+  }) => saveSoon(`draft:${d.draftKey}`, () => save("save_draft", { draft: d })),
   deleteDraft: (draftKey: string) => {
     cancelSave(`draft:${draftKey}`);
     save("delete_draft", { draftKey });
   },
-  reply: (threadId: string, body: string) => saveSoon(`reply:${threadId}`, () => save("save_reply", { threadId, body })),
+  reply: (threadId: string, body: string, resolve: boolean) =>
+    saveSoon(`reply:${threadId}`, () => save("save_reply", { threadId, body, resolve })),
   resolution: (threadId: string, resolvedThrough: string | null, reopened: boolean) =>
     save("set_resolution", { threadId, resolvedThrough, reopened }),
   reviewBody: (body: string) => saveSoon("review-body", () => save("set_review_body", { body })),

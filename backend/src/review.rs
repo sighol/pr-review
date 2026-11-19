@@ -1,13 +1,14 @@
+use std::collections::HashSet;
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use serde::Serialize;
 
-use crate::db::{Db, Draft, SavedState};
+use crate::db::{Db, Draft, Resolution, SavedState};
 use crate::directives::{Applied, Directives};
 use crate::manifest::Manifest;
-use crate::submit::{Event, Gh, NewComment, Submission, ThreadReply, submit};
-use crate::threads::{CONVERSATION_ID, Thread};
+use crate::submit::{Event, Gh, NewComment, Posted, Submission, ThreadReply, submit};
+use crate::threads::{CONVERSATION_ID, Thread, resolve_through};
 use crate::{git, github};
 
 /// A draft is stale when the version of its file it was written against (the PR head for the
@@ -70,6 +71,7 @@ pub fn build_submission(
             side: d.side.clone(),
             start_line: d.start_line,
             end_line: d.end_line,
+            resolve: d.resolve,
         })
         .collect();
     let replies: Vec<ThreadReply> = saved
@@ -79,13 +81,15 @@ pub fn build_submission(
         .map(|r| ThreadReply {
             thread_id: r.thread_id.clone(),
             body: r.body.clone(),
+            resolve: r.resolve,
         })
         .collect();
-    let conversation_reply = saved
+    let conversation = saved
         .replies
         .iter()
-        .find(|r| r.thread_id == CONVERSATION_ID && non_blank(&r.body))
-        .map(|r| r.body.clone());
+        .find(|r| r.thread_id == CONVERSATION_ID && non_blank(&r.body));
+    let conversation_reply = conversation.map(|r| r.body.clone());
+    let conversation_reply_resolve = conversation.is_some_and(|r| r.resolve);
 
     let has_body = non_blank(body);
     let nothing_to_say =
@@ -112,7 +116,39 @@ pub fn build_submission(
         comments,
         replies,
         conversation_reply,
+        conversation_reply_resolve,
+        resolve_conversation: event == Event::Approve && post_review,
     })
+}
+
+/// Which threads to resolve, and through which comment, once the review is on GitHub and the
+/// discussion has been refetched. See `threads::resolve_through` for the rule.
+fn resolutions_after_submit(
+    posted: &Posted,
+    known: &[Thread],
+    refetched: &[Thread],
+) -> Vec<Resolution> {
+    let known: HashSet<&str> = known
+        .iter()
+        .flat_map(|t| &t.comments)
+        .map(|c| c.id.as_str())
+        .collect();
+    let posted_ids: HashSet<&str> = posted.comment_ids.iter().map(String::as_str).collect();
+    let mut seen = HashSet::new();
+    posted
+        .resolve_threads
+        .iter()
+        .filter(|id| seen.insert(id.as_str()))
+        .filter_map(|id| {
+            let thread = refetched.iter().find(|t| &t.id == id)?;
+            let through = resolve_through(thread, &known, &posted_ids)?;
+            Some(Resolution {
+                thread_id: id.clone(),
+                resolved_through: Some(through),
+                reopened: false,
+            })
+        })
+        .collect()
 }
 
 #[derive(Debug, Serialize)]
@@ -127,6 +163,8 @@ pub struct SubmitResult {
     /// The PR's discussion after the review, so the new comments show up; None if refetching failed.
     pub threads: Option<Vec<Thread>>,
     pub refresh_error: Option<String>,
+    /// Threads resolved locally by this review (already saved); empty if refetching failed.
+    pub resolutions: Vec<Resolution>,
 }
 
 /// What the reviewer chose in the window: the verdict and the review text. The text arrives with
@@ -176,12 +214,25 @@ pub async fn submit_saved(
             Err(e) => (None, Some(format!("{e:#}"))),
         };
 
+    let resolutions = match (&threads, &manifest.threads) {
+        (Some(refetched), Some(known)) => {
+            resolutions_after_submit(&outcome.posted, known, refetched)
+        }
+        _ => vec![],
+    };
+    for r in &resolutions {
+        db.set_resolution(&r.thread_id, r.resolved_through.as_deref(), r.reopened)
+            .await
+            .context("the review was submitted, but saving the resolved threads failed")?;
+    }
+
     Ok(SubmitResult {
         review_url: outcome.review_url,
         conversation_error: outcome.conversation_error,
         directives: outcome.directives,
         threads,
         refresh_error,
+        resolutions,
     })
 }
 
@@ -201,6 +252,7 @@ mod tests {
             body: "text".into(),
             head_oid: head_oid.into(),
             base_oid: base_oid.into(),
+            resolve: false,
             stale: false,
         }
     }
@@ -241,10 +293,12 @@ mod tests {
                 Reply {
                     thread_id: "PRRT_1".into(),
                     body: "agreed".into(),
+                    resolve: true,
                 },
                 Reply {
                     thread_id: CONVERSATION_ID.into(),
                     body: "thanks".into(),
+                    resolve: false,
                 },
             ],
             review_body: "LGTM".into(),
@@ -282,7 +336,8 @@ mod tests {
             s.replies,
             vec![ThreadReply {
                 thread_id: "PRRT_1".into(),
-                body: "agreed".into()
+                body: "agreed".into(),
+                resolve: true
             }]
         );
         assert_eq!(s.conversation_reply.as_deref(), Some("thanks"));
@@ -316,6 +371,7 @@ mod tests {
             replies: vec![Reply {
                 thread_id: CONVERSATION_ID.into(),
                 body: "hi".into(),
+                resolve: false,
             }],
             ..SavedState::default()
         };
@@ -338,5 +394,98 @@ mod tests {
         assert!(s.post_review);
         let s = build_submission(&empty, Event::Comment, "h", "text", label("x")).unwrap();
         assert!(s.post_review);
+    }
+
+    #[test]
+    fn the_resolve_flags_reach_the_submission() {
+        let mut s = saved();
+        s.drafts[0].resolve = true;
+        s.replies[1].resolve = true;
+        let sub = build(&s, Event::Comment, "").unwrap();
+        assert!(sub.comments[0].resolve);
+        assert!(sub.replies[0].resolve);
+        assert!(sub.conversation_reply_resolve);
+        assert!(
+            !sub.resolve_conversation,
+            "only an approval resolves the conversation"
+        );
+    }
+
+    #[test]
+    fn only_an_approval_that_posts_a_review_resolves_the_conversation() {
+        let s = saved();
+        assert!(build(&s, Event::Approve, "").unwrap().resolve_conversation);
+        assert!(!build(&s, Event::Comment, "").unwrap().resolve_conversation);
+        assert!(
+            !build(&s, Event::RequestChanges, "x")
+                .unwrap()
+                .resolve_conversation
+        );
+    }
+
+    fn comment_ids(thread: &str, ids: &[&str]) -> Thread {
+        use crate::threads::Comment;
+        Thread {
+            id: thread.into(),
+            file: None,
+            side: "new",
+            line: None,
+            start_line: None,
+            original_line: 0,
+            commit: 0,
+            github_resolved: false,
+            comments: ids
+                .iter()
+                .map(|id| Comment {
+                    id: id.to_string(),
+                    author: "a".into(),
+                    created_at: String::new(),
+                    body: String::new(),
+                    url: String::new(),
+                    review_state: None,
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn resolutions_cover_only_what_you_had_seen_or_posted() {
+        let known = vec![
+            comment_ids("t1", &["a", "b"]),
+            comment_ids(CONVERSATION_ID, &["c1"]),
+        ];
+        let refetched = vec![
+            // Someone replied to t1 between loading it and sending your reply.
+            comment_ids("t1", &["a", "b", "theirs", "mine"]),
+            // A new thread of yours.
+            comment_ids("new", &["tc"]),
+            // The conversation: your review came after a comment you had not seen.
+            comment_ids(CONVERSATION_ID, &["c1", "c2", "review"]),
+        ];
+        let posted = Posted {
+            comment_ids: vec!["mine".into(), "tc".into(), "review".into()],
+            resolve_threads: vec![
+                "t1".into(),
+                "new".into(),
+                CONVERSATION_ID.into(),
+                "t1".into(),
+                "gone".into(),
+            ],
+        };
+        let r = resolutions_after_submit(&posted, &known, &refetched);
+        let got: Vec<_> = r
+            .iter()
+            .map(|r| (r.thread_id.as_str(), r.resolved_through.as_deref()))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("t1", Some("b")),
+                ("new", Some("tc")),
+                (CONVERSATION_ID, Some("c1"))
+            ],
+            "duplicates are dropped, and a thread missing from the refetch is skipped"
+        );
+        assert!(r.iter().all(|r| !r.reopened));
     }
 }

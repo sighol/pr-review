@@ -72,6 +72,8 @@ export interface Draft {
   file: string;
   range: LineRange;
   text: string;
+  /** Resolve the new thread (locally) when the review is sent. */
+  resolve: boolean;
   /** The file changed since this was written, so its line may be wrong; blocks submitting until acknowledged. */
   stale: boolean;
 }
@@ -128,6 +130,7 @@ interface Store {
   createDraft: (file: string, range: LineRange) => void;
   patchDraft: (key: string, text: string) => void;
   removeDraft: (key: string) => void;
+  setDraftResolve: (key: string, on: boolean) => void;
   /** "The line is still right": clears a draft's stale flag. */
   acknowledgeDraft: (key: string) => void;
   /**
@@ -146,6 +149,9 @@ interface Store {
   /** Reply drafts by thread id. "" means an open but empty box. */
   replies: ReadonlyMap<string, string>;
   setReply: (threadId: string, text: string | null) => void;
+  /** Threads whose reply resolves them (locally) when the review is sent. */
+  replyResolves: ReadonlySet<string>;
+  setReplyResolve: (threadId: string, on: boolean) => void;
 
   resolutions: ReadonlyMap<string, Resolution>;
   resolveThread: (t: FakeThread) => void;
@@ -397,6 +403,7 @@ export function StoreProvider({
               file: d.filePath,
               range: { side: d.side, start: d.startLine, end: d.endLine },
               text: d.body,
+              resolve: d.resolve,
               stale: d.stale,
             },
           ]),
@@ -411,6 +418,13 @@ export function StoreProvider({
       (saved?.replies ?? []).filter((r) => threadIds.has(r.threadId)).map((r): [string, string] => [r.threadId, r.body]),
     );
   });
+  const repliesRef = useRef(replies);
+  repliesRef.current = replies;
+  const [replyResolves, setReplyResolves] = useState<ReadonlySet<string>>(
+    () => new Set((saved?.replies ?? []).filter((r) => r.resolve).map((r) => r.threadId)),
+  );
+  const replyResolvesRef = useRef(replyResolves);
+  replyResolvesRef.current = replyResolves;
   const [resolutions, setResolutions] = useState<ReadonlyMap<string, Resolution>>(() =>
     saved
       ? new Map(
@@ -455,7 +469,7 @@ export function StoreProvider({
 
   const createDraft = useCallback((file: string, range: LineRange) => {
     const key = draftKey(file, range);
-    setDrafts((prev) => (prev.has(key) ? prev : new Map(prev).set(key, { key, file, range, text: "", stale: false })));
+    setDrafts((prev) => (prev.has(key) ? prev : new Map(prev).set(key, { key, file, range, text: "", resolve: false, stale: false })));
     setFocus((f) => ({ key, tick: (f?.tick ?? 0) + 1 }));
   }, []);
 
@@ -473,8 +487,24 @@ export function StoreProvider({
         startLine: d.range.start,
         endLine: d.range.end,
         body: text,
+        resolve: d.resolve,
       });
     }
+  }, []);
+
+  const setDraftResolve = useCallback((key: string, on: boolean) => {
+    const d = draftsRef.current.get(key);
+    if (!d) return;
+    setDrafts((prev) => new Map(prev).set(key, { ...d, resolve: on }));
+    persist.draft({
+      draftKey: key,
+      filePath: d.file,
+      side: d.range.side,
+      startLine: d.range.start,
+      endLine: d.range.end,
+      body: d.text,
+      resolve: on,
+    });
   }, []);
 
   const removeDraft = useCallback((key: string) => {
@@ -514,6 +544,17 @@ export function StoreProvider({
     setReplies((prev) =>
       result.conversationError ? new Map([...prev].filter(([id]) => id === CONVERSATION_ID)) : new Map(),
     );
+    setReplyResolves((prev) =>
+      result.conversationError ? new Set([...prev].filter((id) => id === CONVERSATION_ID)) : new Set(),
+    );
+    if (result.resolutions.length > 0) {
+      // Already saved by the backend.
+      setResolutions((prev) => {
+        const next = new Map(prev);
+        for (const r of result.resolutions) next.set(r.threadId, { through: r.resolvedThrough, reopened: r.reopened });
+        return next;
+      });
+    }
     if (result.threads) {
       const now = Date.now();
       setThreads(result.threads.map((t) => threadFromJson(t, now)));
@@ -528,7 +569,24 @@ export function StoreProvider({
       else next.set(threadId, text);
       return next;
     });
-    persist.reply(threadId, text ?? "");
+    if (text === null && replyResolvesRef.current.has(threadId)) {
+      setReplyResolves((prev) => {
+        const next = new Set(prev);
+        next.delete(threadId);
+        return next;
+      });
+    }
+    persist.reply(threadId, text ?? "", text !== null && replyResolvesRef.current.has(threadId));
+  }, []);
+
+  const setReplyResolve = useCallback((threadId: string, on: boolean) => {
+    setReplyResolves((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(threadId);
+      else next.delete(threadId);
+      return next;
+    });
+    persist.reply(threadId, repliesRef.current.get(threadId) ?? "", on);
   }, []);
 
   const resolveThread = useCallback((t: FakeThread) => {
@@ -571,10 +629,13 @@ export function StoreProvider({
       createDraft,
       patchDraft,
       removeDraft,
+      setDraftResolve,
       acknowledgeDraft,
       submitReview,
       replies,
       setReply,
+      replyResolves,
+      setReplyResolve,
       resolutions,
       resolveThread,
       reopenThread,
@@ -612,10 +673,13 @@ export function StoreProvider({
       createDraft,
       patchDraft,
       removeDraft,
+      setDraftResolve,
       acknowledgeDraft,
       submitReview,
       replies,
       setReply,
+      replyResolves,
+      setReplyResolve,
       resolutions,
       resolveThread,
       reopenThread,

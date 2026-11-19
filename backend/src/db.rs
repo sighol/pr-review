@@ -38,6 +38,9 @@ pub struct Draft {
     /// Ignored on save like `head_oid`: the PR base the draft was written against.
     #[serde(default)]
     pub base_oid: String,
+    /// Resolve the new thread (locally) when the review is sent.
+    #[serde(default)]
+    pub resolve: bool,
     /// Not stored; filled in on load: the file changed since the draft was written.
     #[serde(default)]
     #[sqlx(default)]
@@ -49,6 +52,8 @@ pub struct Draft {
 pub struct Reply {
     pub thread_id: String,
     pub body: String,
+    /// Resolve the thread (locally) through this reply when the review is sent.
+    pub resolve: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, sqlx::FromRow)]
@@ -151,7 +156,7 @@ impl Db {
         .fetch_all(&self.pool)
         .await?;
         let drafts = sqlx::query_as(
-            "SELECT draft_key, file_path, side, start_line, end_line, body, head_oid, base_oid FROM drafts
+            "SELECT draft_key, file_path, side, start_line, end_line, body, head_oid, base_oid, resolve FROM drafts
              WHERE owner = ?1 AND repo = ?2 AND pr_number = ?3 ORDER BY file_path, start_line, draft_key",
         )
         .bind(owner)
@@ -160,7 +165,7 @@ impl Db {
         .fetch_all(&self.pool)
         .await?;
         let replies = sqlx::query_as(
-            "SELECT thread_id, body FROM replies
+            "SELECT thread_id, body, resolve FROM replies
              WHERE owner = ?1 AND repo = ?2 AND pr_number = ?3 ORDER BY thread_id",
         )
         .bind(owner)
@@ -286,11 +291,11 @@ impl Db {
         }
         let (owner, repo, number) = self.pr();
         sqlx::query(
-            "INSERT INTO drafts (owner, repo, pr_number, draft_key, file_path, side, start_line, end_line, body, head_oid, base_oid)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+            "INSERT INTO drafts (owner, repo, pr_number, draft_key, file_path, side, start_line, end_line, body, head_oid, base_oid, resolve)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
              ON CONFLICT (owner, repo, pr_number, draft_key) DO UPDATE SET
                  body = excluded.body, head_oid = excluded.head_oid, base_oid = excluded.base_oid,
-                 updated_at = CURRENT_TIMESTAMP",
+                 resolve = excluded.resolve, updated_at = CURRENT_TIMESTAMP",
         )
         .bind(owner)
         .bind(repo)
@@ -303,6 +308,7 @@ impl Db {
         .bind(&draft.body)
         .bind(&self.head_oid)
         .bind(&self.base_oid)
+        .bind(draft.resolve)
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -367,7 +373,7 @@ impl Db {
     }
 
     /// Creates or updates the reply draft for a thread; a blank body deletes it.
-    pub async fn save_reply(&self, thread_id: &str, body: &str) -> Result<()> {
+    pub async fn save_reply(&self, thread_id: &str, body: &str, resolve: bool) -> Result<()> {
         let (owner, repo, number) = self.pr();
         if body.trim().is_empty() {
             sqlx::query("DELETE FROM replies WHERE owner = ?1 AND repo = ?2 AND pr_number = ?3 AND thread_id = ?4")
@@ -380,15 +386,16 @@ impl Db {
             return Ok(());
         }
         sqlx::query(
-            "INSERT INTO replies (owner, repo, pr_number, thread_id, body) VALUES (?1, ?2, ?3, ?4, ?5)
+            "INSERT INTO replies (owner, repo, pr_number, thread_id, body, resolve) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
              ON CONFLICT (owner, repo, pr_number, thread_id) DO UPDATE SET
-                 body = excluded.body, updated_at = CURRENT_TIMESTAMP",
+                 body = excluded.body, resolve = excluded.resolve, updated_at = CURRENT_TIMESTAMP",
         )
         .bind(owner)
         .bind(repo)
         .bind(number)
         .bind(thread_id)
         .bind(body)
+        .bind(resolve)
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -493,6 +500,7 @@ mod tests {
             body: body.into(),
             head_oid: String::new(),
             base_oid: String::new(),
+            resolve: false,
             stale: false,
         }
     }
@@ -576,8 +584,10 @@ mod tests {
     async fn clear_submitted_keeps_only_the_named_reply_and_the_rest_of_the_state() {
         let db = memory_db().await;
         db.save_draft(&draft("k", "text")).await.unwrap();
-        db.save_reply("t1", "reply 1").await.unwrap();
-        db.save_reply("conversation", "reply 2").await.unwrap();
+        db.save_reply("t1", "reply 1", false).await.unwrap();
+        db.save_reply("conversation", "reply 2", false)
+            .await
+            .unwrap();
         db.set_review_body("LGTM").await.unwrap();
         db.set_file_approvals("a.rs", &["c1".into()]).await.unwrap();
         db.set_resolution("t1", Some("c9"), false).await.unwrap();
@@ -590,7 +600,8 @@ mod tests {
             s.replies,
             vec![Reply {
                 thread_id: "conversation".into(),
-                body: "reply 2".into()
+                body: "reply 2".into(),
+                resolve: false
             }]
         );
         assert_eq!((s.approvals.len(), s.resolutions.len()), (1, 1));
@@ -610,10 +621,10 @@ mod tests {
     #[tokio::test]
     async fn replies_resolutions_and_review_body() {
         let db = memory_db().await;
-        db.save_reply("t1", "reply").await.unwrap();
-        db.save_reply("t1", "reply 2").await.unwrap();
-        db.save_reply("t2", "x").await.unwrap();
-        db.save_reply("t2", "").await.unwrap();
+        db.save_reply("t1", "reply", false).await.unwrap();
+        db.save_reply("t1", "reply 2", false).await.unwrap();
+        db.save_reply("t2", "x", false).await.unwrap();
+        db.save_reply("t2", "", false).await.unwrap();
 
         db.set_resolution("t1", Some("c9"), false).await.unwrap();
         db.set_resolution("t1", Some("c9"), true).await.unwrap();
@@ -627,7 +638,8 @@ mod tests {
             s.replies,
             vec![Reply {
                 thread_id: "t1".into(),
-                body: "reply 2".into()
+                body: "reply 2".into(),
+                resolve: false
             }]
         );
         assert_eq!(
@@ -649,6 +661,25 @@ mod tests {
 
         db.set_review_body("").await.unwrap();
         assert_eq!(db.load().await.unwrap().review_body, "");
+    }
+
+    #[tokio::test]
+    async fn the_resolve_flag_is_saved_with_drafts_and_replies() {
+        let db = memory_db().await;
+        let mut d = draft("k", "text");
+        d.resolve = true;
+        db.save_draft(&d).await.unwrap();
+        db.save_reply("t1", "reply", true).await.unwrap();
+        let s = db.load().await.unwrap();
+        assert!(s.drafts[0].resolve);
+        assert!(s.replies[0].resolve);
+
+        d.resolve = false;
+        db.save_draft(&d).await.unwrap();
+        db.save_reply("t1", "reply", false).await.unwrap();
+        let s = db.load().await.unwrap();
+        assert!(!s.drafts[0].resolve);
+        assert!(!s.replies[0].resolve);
     }
 
     #[tokio::test]
