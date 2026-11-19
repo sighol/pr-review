@@ -142,9 +142,9 @@ export function ReviewTab() {
       setProgressLines(null);
     }
   };
-  // Comment and Approve warn when discussions are still open or files unapproved; Request changes does not.
+  // Only Approve warns when discussions are still open or files unapproved; Comment and Request changes do not.
   const trySubmit = (event: Event) => {
-    if (event !== "REQUEST_CHANGES" && (unresolved > 0 || unapproved > 0)) setConfirming(event);
+    if (event === "APPROVE" && (unresolved > 0 || unapproved > 0)) setConfirming(event);
     else submit(event);
   };
   const label = (name: Event, text: string) =>
@@ -157,7 +157,7 @@ export function ReviewTab() {
       {confirming && (
         <ConfirmDialog
           title="Review is not complete"
-          confirmLabel={confirming === "APPROVE" ? "Approve anyway" : "Comment anyway"}
+          confirmLabel="Approve anyway"
           onCancel={() => setConfirming(null)}
           onConfirm={() => {
             const event = confirming;
@@ -177,7 +177,7 @@ export function ReviewTab() {
               </li>
             )}
           </ul>
-          Do you want to {confirming === "APPROVE" ? "approve" : "post this review"} anyway?
+          Do you want to approve anyway?
         </ConfirmDialog>
       )}
       <div className="page">
